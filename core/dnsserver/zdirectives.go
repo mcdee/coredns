@@ -34,6 +34,7 @@ var directives = []string{
 	"kubernetes",
 	"file",
 	"auto",
+	"ens",
 	"secondary",
 	"etcd",
 	"proxy",
