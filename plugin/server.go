@@ -31,6 +31,7 @@ type Server interface {
 	Query(domain string, qname string, qtype uint16, do bool) ([]dns.RR, error)
 
 	// NumRecords returns the number of records for a specific domain and name
+	// This is used to help resolve CNAMEs
 	NumRecords(domain string, qname string) (uint16, error)
 
 	// IsAuthoritative returns true if this server is authoritative for the
@@ -231,9 +232,8 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 	}
 	if len(rrs) == 0 {
 		return nil, nil, nil, NoData
-	} else {
-		answerRrs = append(answerRrs, rrs...)
 	}
+	answerRrs = append(answerRrs, rrs...)
 
 	if len(answerRrs) > 0 {
 		fmt.Println("Answer resource records")

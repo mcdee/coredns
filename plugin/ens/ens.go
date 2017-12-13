@@ -22,12 +22,15 @@ type ENS struct {
 	Registry *registrycontract.RegistryContract
 }
 
+// IsAuthoritative checks if the ENS plugin is authoritative for a given domain
 func (e ENS) IsAuthoritative(domain string) bool {
 	// We consider ourselves authoritative if the domain has an SOA record in ENS
 	rr, err := e.Query(domain, domain, dns.TypeNS, false)
 	return err == nil && len(rr) > 0
 }
 
+// NumRecords provides information on the number of records available for a given
+// domain and name.  This is used for CNAME eligibility
 func (e ENS) NumRecords(domain string, name string) (uint16, error) {
 	// Trim trailing '.' if present before hashing
 	domain = strings.TrimSuffix(domain, ".")
@@ -47,6 +50,7 @@ func (e ENS) NumRecords(domain string, name string) (uint16, error) {
 	return resolverContract.NameEntries(nil, domainHash, nameHash)
 }
 
+// Query queries a given domain/name/resource combination
 func (e ENS) Query(domain string, name string, qtype uint16, do bool) ([]dns.RR, error) {
 	fmt.Printf("Request of %v for %v/%v\n", qtype, name, domain)
 	// Trim trailing '.' if present before hashing
@@ -83,6 +87,7 @@ func (e ENS) Query(domain string, name string, qtype uint16, do bool) ([]dns.RR,
 	return results, err
 }
 
+// ServeDNS implements the plugin.Handler interface.
 func (e ENS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	state := request.Request{W: w, Req: r}
 
@@ -105,70 +110,6 @@ func (e ENS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (in
 	w.WriteMsg(a)
 
 	return 0, nil
-}
-
-// ServeDNS implements the plugin.Handler interface.
-func (e ENS) OldServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
-	state := request.Request{W: w, Req: r}
-
-	a := new(dns.Msg)
-	a.SetReply(r)
-	a.Compress = true
-	a.Authoritative = true
-
-	// Obtain resolver for the domain
-	data, err := query(e, state.Name(), state.QType(), ".")
-	if err != nil || len(data) == 0 {
-		breakpoint := strings.Index(state.Name(), ".")
-		if breakpoint != -1 {
-			// Break out in to key/value
-			dnsKey := state.Name()[0:breakpoint]
-			dnsDomain := state.Name()[breakpoint+1:]
-			data, err = query(e, dnsDomain, state.QType(), dnsKey)
-		}
-	}
-	if err != nil {
-		// Didn't find any records; pass
-		return plugin.NextOrFailure(e.Name(), e.Next, ctx, w, r)
-	}
-
-	a.Answer = make([]dns.RR, 0)
-	offset := 0
-	var result dns.RR
-	for offset < len(data) {
-		result, offset, err = dns.UnpackRR(data, offset)
-		// TODO report err if present?
-		if err == nil {
-			a.Answer = append(a.Answer, result)
-		}
-	}
-
-	state.SizeAndDo(a)
-	fmt.Println("Response is", a)
-	w.WriteMsg(a)
-
-	return 0, nil
-}
-
-func query(e ENS, domain string, qtype uint16, key string) ([]byte, error) {
-	// Trim trailing '.' if present before hashing
-	if strings.HasSuffix(domain, ".") {
-		domain = domain[0 : len(domain)-1]
-	}
-	node := ens.NameHash(domain)
-
-	resolverAddress, err := ens.Resolver(e.Registry, domain)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	resolverContract, err := ens.DnsResolverContractByAddress(e.Client, resolverAddress)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	data, err := resolverContract.DnsRecord(nil, node, ens.LabelHash(key), qtype)
-	return data, err
 }
 
 // Name implements the Handler interface.
