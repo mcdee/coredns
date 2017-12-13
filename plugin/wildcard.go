@@ -13,12 +13,12 @@ func eligibleForWildcard(server Server, domain string, name string) bool {
 		// Already a wildcard
 		return false
 	}
-	records, err := server.NumRecords(domain, name)
+	hasRecords, err := server.HasRecords(domain, name)
 	if err != nil {
 		// TODO now what?
 		return false
 	}
-	return records == 0
+	return !hasRecords
 }
 
 // replaceWithWildcard replaces the left most label with '*'.

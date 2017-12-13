@@ -30,9 +30,9 @@ type Server interface {
 	// Query returns records for a specific domain, name, and resource type
 	Query(domain string, qname string, qtype uint16, do bool) ([]dns.RR, error)
 
-	// NumRecords returns the number of records for a specific domain and name
-	// This is used to help resolve CNAMEs
-	NumRecords(domain string, qname string) (uint16, error)
+	// HasRecords checks if there are any records for a specific domain and name
+	// This is used to check for wildcard eligibility
+	HasRecords(domain string, qname string) (bool, error)
 
 	// IsAuthoritative returns true if this server is authoritative for the
 	// supplied domain
@@ -69,11 +69,14 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 	additionalRrs := make([]dns.RR, 0)
 
 	// Work out the domain against which to query
+	fmt.Println("1")
 	name := strings.ToLower(state.Name())
 	if !strings.HasSuffix(name, ".") {
 		name = name + "."
 	}
+	fmt.Printf("2 - %s\n", name)
 	domain := lowestAuthoritativeDomain(server, name)
+	fmt.Printf("3 - %s\n", domain)
 	if domain == "" {
 		// We aren't authoritative for anything here
 		return nil, nil, nil, NoData
@@ -91,7 +94,6 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 			return nil, nil, nil, ServerFailure
 		}
 		if len(dnameRrs) > 0 {
-			fmt.Printf("Found DNAME %v\n", dnameRrs)
 			answerRrs = append(answerRrs, dnameRrs[0])
 			synthName := substituteDNAME(name, dnameRrs[0].Header().Name, dnameRrs[0].(*dns.DNAME).Target)
 			answerRrs = append(answerRrs, synthesizeCNAME(name, dnameRrs[0].(*dns.DNAME)))
@@ -124,42 +126,35 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 
 	// Wildcard substitution
 	if eligibleForWildcard(server, domain, name) {
+		// We don't have any records for this name so try again using '*' instead of the actual name
 		wildcardName := replaceWithAsteriskLabel(name)
-		wildcardRrs, err := server.Query(domain, wildcardName, qtype, do)
-		if err != nil {
-			return nil, nil, nil, ServerFailure
-		}
-		if len(wildcardRrs) > 0 {
-			// We are both eligible to search for a wildcard and have found
-			// a suitable matching record.  Proceed by recursing and then
-			// fixing up the resultant wildcarded names
-			newReq := state.Req.Copy()
-			newReq.Question[0].Name = wildcardName
-			newState := request.Request{W: state.W, Req: newReq}
+		newReq := state.Req.Copy()
+		newReq.Question[0].Name = wildcardName
+		newState := request.Request{W: state.W, Req: newReq}
 
-			wildcardAnswerRrs, wildcardAuthorityRrs, wildcardAdditionalRrs, wildcardResult := Lookup(server, newState)
-			if wildcardResult == Success {
-				for _, answerRr := range wildcardAnswerRrs {
-					if answerRr.Header().Name == wildcardName {
-						answerRr.Header().Name = name
-					}
-					answerRrs = append(answerRrs, answerRr)
+		wildcardAnswerRrs, wildcardAuthorityRrs, wildcardAdditionalRrs, wildcardResult := Lookup(server, newState)
+		if wildcardResult == Success {
+			// Replace the wildcard results with original query results
+			for _, answerRr := range wildcardAnswerRrs {
+				if answerRr.Header().Name == wildcardName {
+					answerRr.Header().Name = name
 				}
-				for _, authorityRr := range wildcardAuthorityRrs {
-					if authorityRr.Header().Name == wildcardName {
-						authorityRr.Header().Name = name
-					}
-					authorityRrs = append(authorityRrs, authorityRr)
-				}
-				for _, additionalRr := range wildcardAdditionalRrs {
-					if additionalRr.Header().Name == wildcardName {
-						additionalRr.Header().Name = name
-					}
-					additionalRrs = append(additionalRrs, additionalRr)
-				}
+				answerRrs = append(answerRrs, answerRr)
 			}
-			return answerRrs, authorityRrs, additionalRrs, wildcardResult
+			for _, authorityRr := range wildcardAuthorityRrs {
+				if authorityRr.Header().Name == wildcardName {
+					authorityRr.Header().Name = name
+				}
+				authorityRrs = append(authorityRrs, authorityRr)
+			}
+			for _, additionalRr := range wildcardAdditionalRrs {
+				if additionalRr.Header().Name == wildcardName {
+					additionalRr.Header().Name = name
+				}
+				additionalRrs = append(additionalRrs, additionalRr)
+			}
 		}
+		return answerRrs, authorityRrs, additionalRrs, wildcardResult
 	}
 
 	// Grab the NS records for the domain

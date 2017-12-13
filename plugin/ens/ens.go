@@ -29,9 +29,9 @@ func (e ENS) IsAuthoritative(domain string) bool {
 	return err == nil && len(rr) > 0
 }
 
-// NumRecords provides information on the number of records available for a given
-// domain and name.  This is used for CNAME eligibility
-func (e ENS) NumRecords(domain string, name string) (uint16, error) {
+// HasRecords checks if there are any records for a specific domain and name.
+// This is used for wildcard eligibility
+func (e ENS) HasRecords(domain string, name string) (bool, error) {
 	// Trim trailing '.' if present before hashing
 	domain = strings.TrimSuffix(domain, ".")
 	domainHash := ens.NameHash(domain)
@@ -39,15 +39,15 @@ func (e ENS) NumRecords(domain string, name string) (uint16, error) {
 
 	resolverAddress, err := ens.Resolver(e.Registry, domain)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
 
 	resolverContract, err := ens.DnsResolverContractByAddress(e.Client, resolverAddress)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
 
-	return resolverContract.NameEntries(nil, domainHash, nameHash)
+	return resolverContract.HasDnsRecords(nil, domainHash, nameHash)
 }
 
 // Query queries a given domain/name/resource combination
