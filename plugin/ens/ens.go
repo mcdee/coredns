@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/ens/dnsresolvercontract"
+	"github.com/coredns/coredns/plugin/ens/registrycontract"
 	"github.com/coredns/coredns/request"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/wealdtech/ethereal/ens"
-	"github.com/wealdtech/ethereal/ens/registrycontract"
 
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
@@ -34,15 +34,15 @@ func (e ENS) IsAuthoritative(domain string) bool {
 func (e ENS) HasRecords(domain string, name string) (bool, error) {
 	// Trim trailing '.' if present before hashing
 	domain = strings.TrimSuffix(domain, ".")
-	domainHash := ens.NameHash(domain)
-	nameHash := ens.LabelHash(name)
+	domainHash := NameHash(domain)
+	nameHash := LabelHash(name)
 
-	resolverAddress, err := ens.Resolver(e.Registry, domain)
+	resolverAddress, err := e.Registry.Resolver(nil, NameHash(domain))
 	if err != nil {
 		return false, err
 	}
 
-	resolverContract, err := ens.DnsResolverContractByAddress(e.Client, resolverAddress)
+	resolverContract, err := dnsresolvercontract.NewDnsResolverContract(resolverAddress, e.Client)
 	if err != nil {
 		return false, err
 	}
@@ -55,15 +55,15 @@ func (e ENS) Query(domain string, name string, qtype uint16, do bool) ([]dns.RR,
 	fmt.Printf("Request of %v for %v/%v\n", qtype, name, domain)
 	// Trim trailing '.' if present before hashing
 	domain = strings.TrimSuffix(domain, ".")
-	domainHash := ens.NameHash(domain)
-	nameHash := ens.LabelHash(name)
+	domainHash := NameHash(domain)
+	nameHash := LabelHash(name)
 
-	resolverAddress, err := ens.Resolver(e.Registry, domain)
+	resolverAddress, err := e.Registry.Resolver(nil, NameHash(domain))
 	if err != nil {
 		return []dns.RR{}, err
 	}
 
-	resolverContract, err := ens.DnsResolverContractByAddress(e.Client, resolverAddress)
+	resolverContract, err := dnsresolvercontract.NewDnsResolverContract(resolverAddress, e.Client)
 	if err != nil {
 		return []dns.RR{}, err
 	}

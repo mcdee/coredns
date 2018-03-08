@@ -1,10 +1,16 @@
 package ens
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/ens/registrycontract"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/wealdtech/ethereal/ens"
+	"github.com/ethereum/go-ethereum/params"
+	"golang.org/x/net/context"
 
 	"github.com/mholt/caddy"
 )
@@ -29,7 +35,7 @@ func setupENS(c *caddy.Controller) error {
 	}
 
 	// Obtain the registry contract
-	registryContract, err := ens.RegistryContract(client)
+	registryContract, err := RegistryContract(client)
 	if err != nil {
 		return plugin.Error("ens", err)
 	}
@@ -66,4 +72,39 @@ func ensParse(c *caddy.Controller) (string, error) {
 		return "", c.Errf("no connection")
 	}
 	return connection, nil
+}
+
+func RegistryContractAddress(client *ethclient.Client) (address common.Address, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chainID, err := client.NetworkID(ctx)
+	if err != nil {
+		return
+	}
+
+	// Instantiate the registry contract
+	if chainID.Cmp(params.MainnetChainConfig.ChainId) == 0 {
+		address = common.HexToAddress("314159265dd8dbb310642f98f50c066173c1259b")
+	} else if chainID.Cmp(params.TestnetChainConfig.ChainId) == 0 {
+		address = common.HexToAddress("112234455c3a32fd11230c42e7bccd4a84e02010")
+	} else if chainID.Cmp(params.RinkebyChainConfig.ChainId) == 0 {
+		address = common.HexToAddress("e7410170f87102DF0055eB195163A03B7F2Bff4A")
+	} else {
+		err = fmt.Errorf("No contract for network ID %v", chainID)
+	}
+	return
+}
+
+// RegistryContract obtains the registry contract for a chain
+func RegistryContract(client *ethclient.Client) (registry *registrycontract.RegistryContract, err error) {
+	var address common.Address
+	address, err = RegistryContractAddress(client)
+	if err != nil {
+		return
+	}
+
+	// Instantiate the registry contract
+	registry, err = registrycontract.NewRegistryContract(address, client)
+
+	return
 }
