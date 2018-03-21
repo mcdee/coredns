@@ -7,10 +7,12 @@ import (
 	"math/big"
 	"strings"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/event"
 )
 
 // DnsResolverContractABI is the input ABI used to generate the binding from.
@@ -20,6 +22,7 @@ const DnsResolverContractABI = "[{\"constant\":true,\"inputs\":[{\"name\":\"inte
 type DnsResolverContract struct {
 	DnsResolverContractCaller     // Read-only binding to the contract
 	DnsResolverContractTransactor // Write-only binding to the contract
+	DnsResolverContractFilterer   // Log filterer for contract events
 }
 
 // DnsResolverContractCaller is an auto generated read-only Go binding around an Ethereum contract.
@@ -29,6 +32,11 @@ type DnsResolverContractCaller struct {
 
 // DnsResolverContractTransactor is an auto generated write-only Go binding around an Ethereum contract.
 type DnsResolverContractTransactor struct {
+	contract *bind.BoundContract // Generic contract wrapper for the low level calls
+}
+
+// DnsResolverContractFilterer is an auto generated log filtering Go binding around an Ethereum contract events.
+type DnsResolverContractFilterer struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
@@ -71,16 +79,16 @@ type DnsResolverContractTransactorRaw struct {
 
 // NewDnsResolverContract creates a new instance of DnsResolverContract, bound to a specific deployed contract.
 func NewDnsResolverContract(address common.Address, backend bind.ContractBackend) (*DnsResolverContract, error) {
-	contract, err := bindDnsResolverContract(address, backend, backend)
+	contract, err := bindDnsResolverContract(address, backend, backend, backend)
 	if err != nil {
 		return nil, err
 	}
-	return &DnsResolverContract{DnsResolverContractCaller: DnsResolverContractCaller{contract: contract}, DnsResolverContractTransactor: DnsResolverContractTransactor{contract: contract}}, nil
+	return &DnsResolverContract{DnsResolverContractCaller: DnsResolverContractCaller{contract: contract}, DnsResolverContractTransactor: DnsResolverContractTransactor{contract: contract}, DnsResolverContractFilterer: DnsResolverContractFilterer{contract: contract}}, nil
 }
 
 // NewDnsResolverContractCaller creates a new read-only instance of DnsResolverContract, bound to a specific deployed contract.
 func NewDnsResolverContractCaller(address common.Address, caller bind.ContractCaller) (*DnsResolverContractCaller, error) {
-	contract, err := bindDnsResolverContract(address, caller, nil)
+	contract, err := bindDnsResolverContract(address, caller, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -89,20 +97,29 @@ func NewDnsResolverContractCaller(address common.Address, caller bind.ContractCa
 
 // NewDnsResolverContractTransactor creates a new write-only instance of DnsResolverContract, bound to a specific deployed contract.
 func NewDnsResolverContractTransactor(address common.Address, transactor bind.ContractTransactor) (*DnsResolverContractTransactor, error) {
-	contract, err := bindDnsResolverContract(address, nil, transactor)
+	contract, err := bindDnsResolverContract(address, nil, transactor, nil)
 	if err != nil {
 		return nil, err
 	}
 	return &DnsResolverContractTransactor{contract: contract}, nil
 }
 
+// NewDnsResolverContractFilterer creates a new log filterer instance of DnsResolverContract, bound to a specific deployed contract.
+func NewDnsResolverContractFilterer(address common.Address, filterer bind.ContractFilterer) (*DnsResolverContractFilterer, error) {
+	contract, err := bindDnsResolverContract(address, nil, nil, filterer)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractFilterer{contract: contract}, nil
+}
+
 // bindDnsResolverContract binds a generic wrapper to an already deployed contract.
-func bindDnsResolverContract(address common.Address, caller bind.ContractCaller, transactor bind.ContractTransactor) (*bind.BoundContract, error) {
+func bindDnsResolverContract(address common.Address, caller bind.ContractCaller, transactor bind.ContractTransactor, filterer bind.ContractFilterer) (*bind.BoundContract, error) {
 	parsed, err := abi.JSON(strings.NewReader(DnsResolverContractABI))
 	if err != nil {
 		return nil, err
 	}
-	return bind.NewBoundContract(address, parsed, caller, transactor, nil), nil
+	return bind.NewBoundContract(address, parsed, caller, transactor, filterer), nil
 }
 
 // Call invokes the (constant) contract method with params as input values and
@@ -761,4 +778,820 @@ func (_DnsResolverContract *DnsResolverContractSession) SetText(node [32]byte, k
 // Solidity: function setText(node bytes32, key string, value string) returns()
 func (_DnsResolverContract *DnsResolverContractTransactorSession) SetText(node [32]byte, key string, value string) (*types.Transaction, error) {
 	return _DnsResolverContract.Contract.SetText(&_DnsResolverContract.TransactOpts, node, key, value)
+}
+
+// DnsResolverContractABIChangedIterator is returned from FilterABIChanged and is used to iterate over the raw logs and unpacked data for ABIChanged events raised by the DnsResolverContract contract.
+type DnsResolverContractABIChangedIterator struct {
+	Event *DnsResolverContractABIChanged // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *DnsResolverContractABIChangedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(DnsResolverContractABIChanged)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(DnsResolverContractABIChanged)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *DnsResolverContractABIChangedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *DnsResolverContractABIChangedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// DnsResolverContractABIChanged represents a ABIChanged event raised by the DnsResolverContract contract.
+type DnsResolverContractABIChanged struct {
+	Node        [32]byte
+	ContentType *big.Int
+	Raw         types.Log // Blockchain specific contextual infos
+}
+
+// FilterABIChanged is a free log retrieval operation binding the contract event 0xaa121bbeef5f32f5961a2a28966e769023910fc9479059ee3495d4c1a696efe3.
+//
+// Solidity: event ABIChanged(node indexed bytes32, contentType indexed uint256)
+func (_DnsResolverContract *DnsResolverContractFilterer) FilterABIChanged(opts *bind.FilterOpts, node [][32]byte, contentType []*big.Int) (*DnsResolverContractABIChangedIterator, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+	var contentTypeRule []interface{}
+	for _, contentTypeItem := range contentType {
+		contentTypeRule = append(contentTypeRule, contentTypeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.FilterLogs(opts, "ABIChanged", nodeRule, contentTypeRule)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractABIChangedIterator{contract: _DnsResolverContract.contract, event: "ABIChanged", logs: logs, sub: sub}, nil
+}
+
+// WatchABIChanged is a free log subscription operation binding the contract event 0xaa121bbeef5f32f5961a2a28966e769023910fc9479059ee3495d4c1a696efe3.
+//
+// Solidity: event ABIChanged(node indexed bytes32, contentType indexed uint256)
+func (_DnsResolverContract *DnsResolverContractFilterer) WatchABIChanged(opts *bind.WatchOpts, sink chan<- *DnsResolverContractABIChanged, node [][32]byte, contentType []*big.Int) (event.Subscription, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+	var contentTypeRule []interface{}
+	for _, contentTypeItem := range contentType {
+		contentTypeRule = append(contentTypeRule, contentTypeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.WatchLogs(opts, "ABIChanged", nodeRule, contentTypeRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(DnsResolverContractABIChanged)
+				if err := _DnsResolverContract.contract.UnpackLog(event, "ABIChanged", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// DnsResolverContractAddrChangedIterator is returned from FilterAddrChanged and is used to iterate over the raw logs and unpacked data for AddrChanged events raised by the DnsResolverContract contract.
+type DnsResolverContractAddrChangedIterator struct {
+	Event *DnsResolverContractAddrChanged // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *DnsResolverContractAddrChangedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(DnsResolverContractAddrChanged)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(DnsResolverContractAddrChanged)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *DnsResolverContractAddrChangedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *DnsResolverContractAddrChangedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// DnsResolverContractAddrChanged represents a AddrChanged event raised by the DnsResolverContract contract.
+type DnsResolverContractAddrChanged struct {
+	Node [32]byte
+	A    common.Address
+	Raw  types.Log // Blockchain specific contextual infos
+}
+
+// FilterAddrChanged is a free log retrieval operation binding the contract event 0x52d7d861f09ab3d26239d492e8968629f95e9e318cf0b73bfddc441522a15fd2.
+//
+// Solidity: event AddrChanged(node indexed bytes32, a address)
+func (_DnsResolverContract *DnsResolverContractFilterer) FilterAddrChanged(opts *bind.FilterOpts, node [][32]byte) (*DnsResolverContractAddrChangedIterator, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.FilterLogs(opts, "AddrChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractAddrChangedIterator{contract: _DnsResolverContract.contract, event: "AddrChanged", logs: logs, sub: sub}, nil
+}
+
+// WatchAddrChanged is a free log subscription operation binding the contract event 0x52d7d861f09ab3d26239d492e8968629f95e9e318cf0b73bfddc441522a15fd2.
+//
+// Solidity: event AddrChanged(node indexed bytes32, a address)
+func (_DnsResolverContract *DnsResolverContractFilterer) WatchAddrChanged(opts *bind.WatchOpts, sink chan<- *DnsResolverContractAddrChanged, node [][32]byte) (event.Subscription, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.WatchLogs(opts, "AddrChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(DnsResolverContractAddrChanged)
+				if err := _DnsResolverContract.contract.UnpackLog(event, "AddrChanged", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// DnsResolverContractContentChangedIterator is returned from FilterContentChanged and is used to iterate over the raw logs and unpacked data for ContentChanged events raised by the DnsResolverContract contract.
+type DnsResolverContractContentChangedIterator struct {
+	Event *DnsResolverContractContentChanged // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *DnsResolverContractContentChangedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(DnsResolverContractContentChanged)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(DnsResolverContractContentChanged)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *DnsResolverContractContentChangedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *DnsResolverContractContentChangedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// DnsResolverContractContentChanged represents a ContentChanged event raised by the DnsResolverContract contract.
+type DnsResolverContractContentChanged struct {
+	Node [32]byte
+	Hash [32]byte
+	Raw  types.Log // Blockchain specific contextual infos
+}
+
+// FilterContentChanged is a free log retrieval operation binding the contract event 0x0424b6fe0d9c3bdbece0e7879dc241bb0c22e900be8b6c168b4ee08bd9bf83bc.
+//
+// Solidity: event ContentChanged(node indexed bytes32, hash bytes32)
+func (_DnsResolverContract *DnsResolverContractFilterer) FilterContentChanged(opts *bind.FilterOpts, node [][32]byte) (*DnsResolverContractContentChangedIterator, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.FilterLogs(opts, "ContentChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractContentChangedIterator{contract: _DnsResolverContract.contract, event: "ContentChanged", logs: logs, sub: sub}, nil
+}
+
+// WatchContentChanged is a free log subscription operation binding the contract event 0x0424b6fe0d9c3bdbece0e7879dc241bb0c22e900be8b6c168b4ee08bd9bf83bc.
+//
+// Solidity: event ContentChanged(node indexed bytes32, hash bytes32)
+func (_DnsResolverContract *DnsResolverContractFilterer) WatchContentChanged(opts *bind.WatchOpts, sink chan<- *DnsResolverContractContentChanged, node [][32]byte) (event.Subscription, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.WatchLogs(opts, "ContentChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(DnsResolverContractContentChanged)
+				if err := _DnsResolverContract.contract.UnpackLog(event, "ContentChanged", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// DnsResolverContractNameChangedIterator is returned from FilterNameChanged and is used to iterate over the raw logs and unpacked data for NameChanged events raised by the DnsResolverContract contract.
+type DnsResolverContractNameChangedIterator struct {
+	Event *DnsResolverContractNameChanged // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *DnsResolverContractNameChangedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(DnsResolverContractNameChanged)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(DnsResolverContractNameChanged)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *DnsResolverContractNameChangedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *DnsResolverContractNameChangedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// DnsResolverContractNameChanged represents a NameChanged event raised by the DnsResolverContract contract.
+type DnsResolverContractNameChanged struct {
+	Node [32]byte
+	Name string
+	Raw  types.Log // Blockchain specific contextual infos
+}
+
+// FilterNameChanged is a free log retrieval operation binding the contract event 0xb7d29e911041e8d9b843369e890bcb72c9388692ba48b65ac54e7214c4c348f7.
+//
+// Solidity: event NameChanged(node indexed bytes32, name string)
+func (_DnsResolverContract *DnsResolverContractFilterer) FilterNameChanged(opts *bind.FilterOpts, node [][32]byte) (*DnsResolverContractNameChangedIterator, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.FilterLogs(opts, "NameChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractNameChangedIterator{contract: _DnsResolverContract.contract, event: "NameChanged", logs: logs, sub: sub}, nil
+}
+
+// WatchNameChanged is a free log subscription operation binding the contract event 0xb7d29e911041e8d9b843369e890bcb72c9388692ba48b65ac54e7214c4c348f7.
+//
+// Solidity: event NameChanged(node indexed bytes32, name string)
+func (_DnsResolverContract *DnsResolverContractFilterer) WatchNameChanged(opts *bind.WatchOpts, sink chan<- *DnsResolverContractNameChanged, node [][32]byte) (event.Subscription, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.WatchLogs(opts, "NameChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(DnsResolverContractNameChanged)
+				if err := _DnsResolverContract.contract.UnpackLog(event, "NameChanged", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// DnsResolverContractPubkeyChangedIterator is returned from FilterPubkeyChanged and is used to iterate over the raw logs and unpacked data for PubkeyChanged events raised by the DnsResolverContract contract.
+type DnsResolverContractPubkeyChangedIterator struct {
+	Event *DnsResolverContractPubkeyChanged // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *DnsResolverContractPubkeyChangedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(DnsResolverContractPubkeyChanged)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(DnsResolverContractPubkeyChanged)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *DnsResolverContractPubkeyChangedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *DnsResolverContractPubkeyChangedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// DnsResolverContractPubkeyChanged represents a PubkeyChanged event raised by the DnsResolverContract contract.
+type DnsResolverContractPubkeyChanged struct {
+	Node [32]byte
+	X    [32]byte
+	Y    [32]byte
+	Raw  types.Log // Blockchain specific contextual infos
+}
+
+// FilterPubkeyChanged is a free log retrieval operation binding the contract event 0x1d6f5e03d3f63eb58751986629a5439baee5079ff04f345becb66e23eb154e46.
+//
+// Solidity: event PubkeyChanged(node indexed bytes32, x bytes32, y bytes32)
+func (_DnsResolverContract *DnsResolverContractFilterer) FilterPubkeyChanged(opts *bind.FilterOpts, node [][32]byte) (*DnsResolverContractPubkeyChangedIterator, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.FilterLogs(opts, "PubkeyChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractPubkeyChangedIterator{contract: _DnsResolverContract.contract, event: "PubkeyChanged", logs: logs, sub: sub}, nil
+}
+
+// WatchPubkeyChanged is a free log subscription operation binding the contract event 0x1d6f5e03d3f63eb58751986629a5439baee5079ff04f345becb66e23eb154e46.
+//
+// Solidity: event PubkeyChanged(node indexed bytes32, x bytes32, y bytes32)
+func (_DnsResolverContract *DnsResolverContractFilterer) WatchPubkeyChanged(opts *bind.WatchOpts, sink chan<- *DnsResolverContractPubkeyChanged, node [][32]byte) (event.Subscription, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.WatchLogs(opts, "PubkeyChanged", nodeRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(DnsResolverContractPubkeyChanged)
+				if err := _DnsResolverContract.contract.UnpackLog(event, "PubkeyChanged", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// DnsResolverContractTextChangedIterator is returned from FilterTextChanged and is used to iterate over the raw logs and unpacked data for TextChanged events raised by the DnsResolverContract contract.
+type DnsResolverContractTextChangedIterator struct {
+	Event *DnsResolverContractTextChanged // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *DnsResolverContractTextChangedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(DnsResolverContractTextChanged)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(DnsResolverContractTextChanged)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *DnsResolverContractTextChangedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *DnsResolverContractTextChangedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// DnsResolverContractTextChanged represents a TextChanged event raised by the DnsResolverContract contract.
+type DnsResolverContractTextChanged struct {
+	Node       [32]byte
+	IndexedKey common.Hash
+	Key        string
+	Raw        types.Log // Blockchain specific contextual infos
+}
+
+// FilterTextChanged is a free log retrieval operation binding the contract event 0xd8c9334b1a9c2f9da342a0a2b32629c1a229b6445dad78947f674b44444a7550.
+//
+// Solidity: event TextChanged(node indexed bytes32, indexedKey indexed string, key string)
+func (_DnsResolverContract *DnsResolverContractFilterer) FilterTextChanged(opts *bind.FilterOpts, node [][32]byte, indexedKey []string) (*DnsResolverContractTextChangedIterator, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+	var indexedKeyRule []interface{}
+	for _, indexedKeyItem := range indexedKey {
+		indexedKeyRule = append(indexedKeyRule, indexedKeyItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.FilterLogs(opts, "TextChanged", nodeRule, indexedKeyRule)
+	if err != nil {
+		return nil, err
+	}
+	return &DnsResolverContractTextChangedIterator{contract: _DnsResolverContract.contract, event: "TextChanged", logs: logs, sub: sub}, nil
+}
+
+// WatchTextChanged is a free log subscription operation binding the contract event 0xd8c9334b1a9c2f9da342a0a2b32629c1a229b6445dad78947f674b44444a7550.
+//
+// Solidity: event TextChanged(node indexed bytes32, indexedKey indexed string, key string)
+func (_DnsResolverContract *DnsResolverContractFilterer) WatchTextChanged(opts *bind.WatchOpts, sink chan<- *DnsResolverContractTextChanged, node [][32]byte, indexedKey []string) (event.Subscription, error) {
+
+	var nodeRule []interface{}
+	for _, nodeItem := range node {
+		nodeRule = append(nodeRule, nodeItem)
+	}
+	var indexedKeyRule []interface{}
+	for _, indexedKeyItem := range indexedKey {
+		indexedKeyRule = append(indexedKeyRule, indexedKeyItem)
+	}
+
+	logs, sub, err := _DnsResolverContract.contract.WatchLogs(opts, "TextChanged", nodeRule, indexedKeyRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(DnsResolverContractTextChanged)
+				if err := _DnsResolverContract.contract.UnpackLog(event, "TextChanged", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
 }
