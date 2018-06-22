@@ -128,33 +128,35 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 	if eligibleForWildcard(server, domain, name) {
 		// We don't have any records for this name so try again using '*' instead of the actual name
 		wildcardName := replaceWithAsteriskLabel(name)
-		newReq := state.Req.Copy()
-		newReq.Question[0].Name = wildcardName
-		newState := request.Request{W: state.W, Req: newReq}
+		if wildcardName != name {
+			newReq := state.Req.Copy()
+			newReq.Question[0].Name = wildcardName
+			newState := request.Request{W: state.W, Req: newReq}
 
-		wildcardAnswerRrs, wildcardAuthorityRrs, wildcardAdditionalRrs, wildcardResult := Lookup(server, newState)
-		if wildcardResult == Success {
-			// Replace the wildcard results with original query results
-			for _, answerRr := range wildcardAnswerRrs {
-				if answerRr.Header().Name == wildcardName {
-					answerRr.Header().Name = name
+			wildcardAnswerRrs, wildcardAuthorityRrs, wildcardAdditionalRrs, wildcardResult := Lookup(server, newState)
+			if wildcardResult == Success {
+				// Replace the wildcard results with original query results
+				for _, answerRr := range wildcardAnswerRrs {
+					if answerRr.Header().Name == wildcardName {
+						answerRr.Header().Name = name
+					}
+					answerRrs = append(answerRrs, answerRr)
 				}
-				answerRrs = append(answerRrs, answerRr)
-			}
-			for _, authorityRr := range wildcardAuthorityRrs {
-				if authorityRr.Header().Name == wildcardName {
-					authorityRr.Header().Name = name
+				for _, authorityRr := range wildcardAuthorityRrs {
+					if authorityRr.Header().Name == wildcardName {
+						authorityRr.Header().Name = name
+					}
+					authorityRrs = append(authorityRrs, authorityRr)
 				}
-				authorityRrs = append(authorityRrs, authorityRr)
-			}
-			for _, additionalRr := range wildcardAdditionalRrs {
-				if additionalRr.Header().Name == wildcardName {
-					additionalRr.Header().Name = name
+				for _, additionalRr := range wildcardAdditionalRrs {
+					if additionalRr.Header().Name == wildcardName {
+						additionalRr.Header().Name = name
+					}
+					additionalRrs = append(additionalRrs, additionalRr)
 				}
-				additionalRrs = append(additionalRrs, additionalRr)
 			}
+			return answerRrs, authorityRrs, additionalRrs, wildcardResult
 		}
-		return answerRrs, authorityRrs, additionalRrs, wildcardResult
 	}
 
 	// Grab the NS records for the domain

@@ -35,19 +35,19 @@ func (e ENS) HasRecords(domain string, name string) (bool, error) {
 	// Trim trailing '.' if present before hashing
 	domain = strings.TrimSuffix(domain, ".")
 	domainHash := NameHash(domain)
-	nameHash := LabelHash(name)
+	nameHash := DNSWireFormatDomainHash(name)
 
-	resolverAddress, err := e.Registry.Resolver(nil, NameHash(domain))
+	resolverAddress, err := e.Registry.Resolver(nil, domainHash)
 	if err != nil {
 		return false, err
 	}
 
-	resolverContract, err := dnsresolvercontract.NewDnsResolverContract(resolverAddress, e.Client)
+	resolverContract, err := dnsresolvercontract.NewDNSResolverContract(resolverAddress, e.Client)
 	if err != nil {
 		return false, err
 	}
 
-	return resolverContract.HasDnsRecords(nil, domainHash, nameHash)
+	return resolverContract.HasDNSRecords(nil, domainHash, nameHash)
 }
 
 // Query queries a given domain/name/resource combination
@@ -56,14 +56,14 @@ func (e ENS) Query(domain string, name string, qtype uint16, do bool) ([]dns.RR,
 	// Trim trailing '.' if present before hashing
 	domain = strings.TrimSuffix(domain, ".")
 	domainHash := NameHash(domain)
-	nameHash := LabelHash(name)
+	nameHash := DNSWireFormatDomainHash(name)
 
-	resolverAddress, err := e.Registry.Resolver(nil, NameHash(domain))
+	resolverAddress, err := e.Registry.Resolver(nil, domainHash)
 	if err != nil {
 		return []dns.RR{}, err
 	}
 
-	resolverContract, err := dnsresolvercontract.NewDnsResolverContract(resolverAddress, e.Client)
+	resolverContract, err := dnsresolvercontract.NewDNSResolverContract(resolverAddress, e.Client)
 	if err != nil {
 		return []dns.RR{}, err
 	}
