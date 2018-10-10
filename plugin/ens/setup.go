@@ -23,7 +23,6 @@ func init() {
 }
 
 func setupENS(c *caddy.Controller) error {
-
 	connection, err := ensParse(c)
 	if err != nil {
 		return plugin.Error("ens", err)

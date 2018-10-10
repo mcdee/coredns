@@ -55,6 +55,8 @@ func LabelHash(label string) (hash [32]byte) {
 // NameHash generates a hash from a name that can be used to
 // look up the name in ENS
 func NameHash(name string) (hash [32]byte) {
+	// Remove any trailing '.'
+	name = strings.TrimSuffix(name, ".")
 	if name == "" {
 		return
 	}

@@ -69,14 +69,11 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 	additionalRrs := make([]dns.RR, 0)
 
 	// Work out the domain against which to query
-	fmt.Println("1")
 	name := strings.ToLower(state.Name())
 	if !strings.HasSuffix(name, ".") {
 		name = name + "."
 	}
-	fmt.Printf("2 - %s\n", name)
 	domain := lowestAuthoritativeDomain(server, name)
-	fmt.Printf("3 - %s\n", domain)
 	if domain == "" {
 		// We aren't authoritative for anything here
 		return nil, nil, nil, NoData

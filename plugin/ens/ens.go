@@ -3,7 +3,6 @@ package ens
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/ens/dnsresolvercontract"
@@ -32,8 +31,6 @@ func (e ENS) IsAuthoritative(domain string) bool {
 // HasRecords checks if there are any records for a specific domain and name.
 // This is used for wildcard eligibility
 func (e ENS) HasRecords(domain string, name string) (bool, error) {
-	// Trim trailing '.' if present before hashing
-	domain = strings.TrimSuffix(domain, ".")
 	domainHash := NameHash(domain)
 	nameHash := DNSWireFormatDomainHash(name)
 
@@ -52,9 +49,7 @@ func (e ENS) HasRecords(domain string, name string) (bool, error) {
 
 // Query queries a given domain/name/resource combination
 func (e ENS) Query(domain string, name string, qtype uint16, do bool) ([]dns.RR, error) {
-	fmt.Printf("Request of %v for %v/%v\n", qtype, name, domain)
-	// Trim trailing '.' if present before hashing
-	domain = strings.TrimSuffix(domain, ".")
+	fmt.Printf("Request type %d for name \"%v\" in domain \"%v\"\n", qtype, name, domain)
 	domainHash := NameHash(domain)
 	nameHash := DNSWireFormatDomainHash(name)
 
