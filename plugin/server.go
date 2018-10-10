@@ -156,15 +156,11 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 		}
 	}
 
-	// Grab the NS records for the domain
-	nsRrs, err := server.Query(domain, domain, dns.TypeNS, do)
-	if err != nil {
-		return nil, nil, nil, ServerFailure
-	}
-	// Add the NS records to the authority results
-	authorityRrs = append(authorityRrs, nsRrs...)
-
 	if qtype == dns.TypeNS {
+		nsRrs, err := server.Query(domain, domain, dns.TypeNS, do)
+		if err != nil {
+			return nil, nil, nil, ServerFailure
+		}
 		// Nameserver records require additional processing
 		if domain != name {
 			return nil, nil, nil, NoData
@@ -205,7 +201,7 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 			cnameAnswerRrs, cnameAuthorityRrs, cnameAdditionalrs, cnameResult := Lookup(server, newState)
 			if cnameResult == Success {
 				answerRrs = append(answerRrs, cnameAnswerRrs...)
-				nsRrs = append(nsRrs, cnameAuthorityRrs...)
+				authorityRrs = append(authorityRrs, cnameAuthorityRrs...)
 				additionalRrs = append(additionalRrs, cnameAdditionalrs...)
 			}
 			return answerRrs, authorityRrs, additionalRrs, cnameResult
@@ -261,8 +257,6 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 		// Add A and AAAA records to the answers provided where we can
 		// TODO
 	}
-
-	// TODO DNSSEC
 
 	return answerRrs, authorityRrs, additionalRrs, Success
 }
