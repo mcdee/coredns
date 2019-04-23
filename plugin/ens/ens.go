@@ -2,16 +2,14 @@
 package ens
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/ens/dnsresolvercontract"
 	"github.com/coredns/coredns/plugin/ens/registrycontract"
 	"github.com/coredns/coredns/request"
 	"github.com/ethereum/go-ethereum/ethclient"
-
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 // ENS is a plugin that returns information held in the Ethereum Name Service.
@@ -49,7 +47,7 @@ func (e ENS) HasRecords(domain string, name string) (bool, error) {
 
 // Query queries a given domain/name/resource combination
 func (e ENS) Query(domain string, name string, qtype uint16, do bool) ([]dns.RR, error) {
-	fmt.Printf("Request type %d for name \"%v\" in domain \"%v\"\n", qtype, name, domain)
+	// fmt.Printf("Request type %d for name \"%v\" in domain \"%v\"\n", qtype, name, domain)
 	domainHash := NameHash(domain)
 	nameHash := DNSWireFormatDomainHash(name)
 

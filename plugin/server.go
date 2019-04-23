@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/coredns/coredns/request"
@@ -209,14 +208,14 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 	}
 	// Fetch actual answer record(s)
 	rrs, err := server.Query(domain, name, qtype, do)
-	fmt.Println("Request summary")
-	fmt.Println("===============")
-	fmt.Printf("Domain:\t\t%v\n", domain)
-	fmt.Printf("Name:\t\t%v\n", name)
-	fmt.Printf("Type:\t\t%v\n", qtype)
-	if err != nil {
-		fmt.Printf("Err\t\t%v\n", err)
-	}
+	//	fmt.Println("Request summary")
+	//	fmt.Println("===============")
+	//	fmt.Printf("Domain:\t\t%v\n", domain)
+	//	fmt.Printf("Name:\t\t%v\n", name)
+	//	fmt.Printf("Type:\t\t%v\n", qtype)
+	//	if err != nil {
+	//		fmt.Printf("Err\t\t%v\n", err)
+	//	}
 	if err != nil {
 		return nil, nil, nil, ServerFailure
 	}
@@ -225,30 +224,30 @@ func Lookup(server Server, state request.Request) ([]dns.RR, []dns.RR, []dns.RR,
 	}
 	answerRrs = append(answerRrs, rrs...)
 
-	if len(answerRrs) > 0 {
-		fmt.Println("Answer resource records")
-		fmt.Println("-----------------------")
-		for _, rr := range answerRrs {
-			fmt.Println(rr)
-		}
-	}
-
-	if len(authorityRrs) > 0 {
-		fmt.Println("Authority resource records")
-		fmt.Println("--------------------------")
-		for _, rr := range authorityRrs {
-			fmt.Println(rr)
-		}
-	}
-
-	if len(additionalRrs) > 0 {
-		fmt.Println("Additional resource records")
-		fmt.Println("---------------------------")
-		for _, rr := range additionalRrs {
-			fmt.Println(rr)
-		}
-	}
-
+	//	if len(answerRrs) > 0 {
+	//		fmt.Println("Answer resource records")
+	//		fmt.Println("-----------------------")
+	//		for _, rr := range answerRrs {
+	//			fmt.Println(rr)
+	//		}
+	//	}
+	//
+	//	if len(authorityRrs) > 0 {
+	//		fmt.Println("Authority resource records")
+	//		fmt.Println("--------------------------")
+	//		for _, rr := range authorityRrs {
+	//			fmt.Println(rr)
+	//		}
+	//	}
+	//
+	//	if len(additionalRrs) > 0 {
+	//		fmt.Println("Additional resource records")
+	//		fmt.Println("---------------------------")
+	//		for _, rr := range additionalRrs {
+	//			fmt.Println(rr)
+	//		}
+	//	}
+	//
 	if len(answerRrs) == 0 {
 		return answerRrs, authorityRrs, additionalRrs, NoData
 	}

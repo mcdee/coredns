@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/net/idna"
 
-	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"golang.org/x/crypto/sha3"
 )
 
 var p = idna.New(idna.MapForLookup(), idna.StrictDomainName(true), idna.Transitional(false))
@@ -46,7 +46,7 @@ func LabelHash(label string) (hash [32]byte) {
 	}
 	normalizedLabel := NormaliseDomain(label)
 
-	sha := sha3.NewKeccak256()
+	sha := sha3.NewLegacyKeccak256()
 	sha.Write([]byte(normalizedLabel))
 	sha.Sum(hash[:0])
 	return
@@ -82,9 +82,9 @@ func Domain(name string) (domain string, err error) {
 }
 
 func nameHashPart(currentHash [32]byte, name string) (hash [32]byte) {
-	sha := sha3.NewKeccak256()
+	sha := sha3.NewLegacyKeccak256()
 	sha.Write(currentHash[:])
-	nameSha := sha3.NewKeccak256()
+	nameSha := sha3.NewLegacyKeccak256()
 	nameSha.Write([]byte(name))
 	nameHash := nameSha.Sum(nil)
 	sha.Write(nameHash)
