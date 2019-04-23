@@ -36,7 +36,7 @@ func testExternalPluginCompile(t *testing.T) {
 	}
 
 	if !strings.Contains(string(out), "dns.example") {
-		t.Fatal("dns.example plugin should be there")
+		t.Fatal("Plugin dns.example should be there")
 	}
 }
 

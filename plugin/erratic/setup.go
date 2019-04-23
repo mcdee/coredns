@@ -14,11 +14,11 @@ import (
 func init() {
 	caddy.RegisterPlugin("erratic", caddy.Plugin{
 		ServerType: "dns",
-		Action:     setupErratic,
+		Action:     setup,
 	})
 }
 
-func setupErratic(c *caddy.Controller) error {
+func setup(c *caddy.Controller) error {
 	e, err := parseErratic(c)
 	if err != nil {
 		return plugin.Error("erratic", err)
@@ -104,6 +104,8 @@ func parseErratic(c *caddy.Controller) (*Erratic, error) {
 					return nil, fmt.Errorf("illegal amount value given %q", args[0])
 				}
 				e.truncate = uint64(amount)
+			case "large":
+				e.large = true
 			default:
 				return nil, c.Errf("unknown property '%s'", c.Val())
 			}

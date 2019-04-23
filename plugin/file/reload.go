@@ -1,20 +1,18 @@
 package file
 
 import (
-	"log"
 	"os"
 	"time"
 )
 
-// TickTime is the default time we use to reload zone. Exported to be tweaked in tests.
-var TickTime = 1 * time.Minute
+// TickTime is clock resolution. By default ticks every second. Handler checks if reloadInterval has been reached on every tick.
+var TickTime = 1 * time.Second
 
-// Reload reloads a zone when it is changed on disk. If z.NoRoload is true, no reloading will be done.
+// Reload reloads a zone when it is changed on disk. If z.NoReload is true, no reloading will be done.
 func (z *Zone) Reload() error {
-	if z.NoReload {
+	if z.ReloadInterval == 0 {
 		return nil
 	}
-
 	tick := time.NewTicker(TickTime)
 
 	go func() {
@@ -23,17 +21,25 @@ func (z *Zone) Reload() error {
 			select {
 
 			case <-tick.C:
-				reader, err := os.Open(z.file)
+				if z.LastReloaded.Add(z.ReloadInterval).After(time.Now()) {
+					//reload interval not reached yet
+					continue
+				}
+				//saving timestamp of last attempted reload
+				z.LastReloaded = time.Now()
+
+				zFile := z.File()
+				reader, err := os.Open(zFile)
 				if err != nil {
-					log.Printf("[ERROR] Failed to open zone %q in %q: %v", z.origin, z.file, err)
+					log.Errorf("Failed to open zone %q in %q: %v", z.origin, zFile, err)
 					continue
 				}
 
 				serial := z.SOASerialIfDefined()
-				zone, err := Parse(reader, z.origin, z.file, serial)
+				zone, err := Parse(reader, z.origin, zFile, serial)
 				if err != nil {
 					if _, ok := err.(*serialErr); !ok {
-						log.Printf("[ERROR] Parsing zone %q: %v", z.origin, err)
+						log.Errorf("Parsing zone %q: %v", z.origin, err)
 					}
 					continue
 				}
@@ -44,10 +50,10 @@ func (z *Zone) Reload() error {
 				z.Tree = zone.Tree
 				z.reloadMu.Unlock()
 
-				log.Printf("[INFO] Successfully reloaded zone %q in %q with serial %d", z.origin, z.file, z.Apex.SOA.Serial)
+				log.Infof("Successfully reloaded zone %q in %q with serial %d", z.origin, zFile, z.Apex.SOA.Serial)
 				z.Notify()
 
-			case <-z.ReloadShutdown:
+			case <-z.reloadShutdown:
 				tick.Stop()
 				return
 			}

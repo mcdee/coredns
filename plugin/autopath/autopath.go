@@ -20,7 +20,7 @@ through the search path.
 
 It is assume the search path ordering is identical between server and client.
 
-Midldeware implementing autopath, must have a function called `AutoPath` of type
+Middleware implementing autopath, must have a function called `AutoPath` of type
 autopath.Func. Note the searchpath must be ending with the empty string.
 
 I.e:
@@ -32,19 +32,27 @@ func (m Plugins ) AutoPath(state request.Request) []string {
 package autopath
 
 import (
+	"context"
+
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/metrics"
 	"github.com/coredns/coredns/plugin/pkg/dnsutil"
 	"github.com/coredns/coredns/plugin/pkg/nonwriter"
 	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 // Func defines the function plugin should implement to return a search
 // path to the autopath plugin. The last element of the slice must be the empty string.
 // If Func returns a nil slice, no autopathing will be done.
 type Func func(request.Request) []string
+
+// AutoPather defines the interface that a plugin should implement in order to be
+// used by AutoPath.
+type AutoPather interface {
+	AutoPath(request.Request) []string
+}
 
 // AutoPath perform autopath: service side search path completion.
 type AutoPath struct {
@@ -125,7 +133,7 @@ func (a *AutoPath) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Ms
 
 		// Write whatever non-nxdomain answer we've found.
 		w.WriteMsg(msg)
-		AutoPathCount.WithLabelValues().Add(1)
+		autoPathCount.WithLabelValues(metrics.WithServer(ctx)).Add(1)
 		return rcode, err
 
 	}

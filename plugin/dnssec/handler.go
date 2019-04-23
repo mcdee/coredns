@@ -1,12 +1,14 @@
 package dnssec
 
 import (
+	"context"
+
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/metrics"
 	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/net/context"
 )
 
 // ServeDNS implements the plugin.Handler interface.
@@ -21,62 +23,59 @@ func (d Dnssec) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 		return plugin.NextOrFailure(d.Name(), d.Next, ctx, w, r)
 	}
 
+	state.Zone = zone
+	server := metrics.WithServer(ctx)
+
 	// Intercept queries for DNSKEY, but only if one of the zones matches the qname, otherwise we let
 	// the query through.
 	if qtype == dns.TypeDNSKEY {
 		for _, z := range d.zones {
 			if qname == z {
-				resp := d.getDNSKEY(state, z, do)
+				resp := d.getDNSKEY(state, z, do, server)
 				resp.Authoritative = true
-				state.SizeAndDo(resp)
 				w.WriteMsg(resp)
 				return dns.RcodeSuccess, nil
 			}
 		}
 	}
 
-	drr := &ResponseWriter{w, d}
-	return plugin.NextOrFailure(d.Name(), d.Next, ctx, drr, r)
+	if do {
+		drr := &ResponseWriter{w, d, server}
+		return plugin.NextOrFailure(d.Name(), d.Next, ctx, drr, r)
+	}
+
+	return plugin.NextOrFailure(d.Name(), d.Next, ctx, w, r)
 }
 
 var (
 	cacheSize = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: plugin.Namespace,
-		Subsystem: subsystem,
+		Subsystem: "dnssec",
 		Name:      "cache_size",
 		Help:      "The number of elements in the dnssec cache.",
-	}, []string{"type"})
+	}, []string{"server", "type"})
 
 	cacheCapacity = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: plugin.Namespace,
-		Subsystem: subsystem,
+		Subsystem: "dnssec",
 		Name:      "cache_capacity",
 		Help:      "The dnssec cache's capacity.",
-	}, []string{"type"})
+	}, []string{"server", "type"})
 
-	cacheHits = prometheus.NewCounter(prometheus.CounterOpts{
+	cacheHits = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
-		Subsystem: subsystem,
+		Subsystem: "dnssec",
 		Name:      "cache_hits_total",
 		Help:      "The count of cache hits.",
-	})
+	}, []string{"server"})
 
-	cacheMisses = prometheus.NewCounter(prometheus.CounterOpts{
+	cacheMisses = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: plugin.Namespace,
-		Subsystem: subsystem,
+		Subsystem: "dnssec",
 		Name:      "cache_misses_total",
 		Help:      "The count of cache misses.",
-	})
+	}, []string{"server"})
 )
 
 // Name implements the Handler interface.
 func (d Dnssec) Name() string { return "dnssec" }
-
-const subsystem = "dnssec"
-
-func init() {
-	prometheus.MustRegister(cacheSize)
-	prometheus.MustRegister(cacheCapacity)
-	prometheus.MustRegister(cacheHits)
-	prometheus.MustRegister(cacheMisses)
-}

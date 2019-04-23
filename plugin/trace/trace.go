@@ -2,26 +2,38 @@
 package trace
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/metrics"
+	"github.com/coredns/coredns/plugin/pkg/dnstest"
+	"github.com/coredns/coredns/plugin/pkg/rcode"
 	// Plugin the trace package.
 	_ "github.com/coredns/coredns/plugin/pkg/trace"
+	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
 	ot "github.com/opentracing/opentracing-go"
 	zipkin "github.com/openzipkin/zipkin-go-opentracing"
-	"golang.org/x/net/context"
+	ddtrace "gopkg.in/DataDog/dd-trace-go.v0/opentracing"
+)
+
+const (
+	tagName  = "coredns.io/name"
+	tagType  = "coredns.io/type"
+	tagRcode = "coredns.io/rcode"
 )
 
 type trace struct {
 	Next            plugin.Handler
-	ServiceEndpoint string
 	Endpoint        string
 	EndpointType    string
 	tracer          ot.Tracer
+	serviceEndpoint string
 	serviceName     string
 	clientServer    bool
 	every           uint64
@@ -40,6 +52,8 @@ func (t *trace) OnStartup() error {
 		switch t.EndpointType {
 		case "zipkin":
 			err = t.setupZipkin()
+		case "datadog":
+			err = t.setupDatadog()
 		default:
 			err = fmt.Errorf("unknown endpoint type: %s", t.EndpointType)
 		}
@@ -54,16 +68,30 @@ func (t *trace) setupZipkin() error {
 		return err
 	}
 
-	recorder := zipkin.NewRecorder(collector, false, t.ServiceEndpoint, t.serviceName)
+	recorder := zipkin.NewRecorder(collector, false, t.serviceEndpoint, t.serviceName)
 	t.tracer, err = zipkin.NewTracer(recorder, zipkin.ClientServerSameSpan(t.clientServer))
 
 	return err
 }
 
-// Name implements the Handler interface.
-func (t *trace) Name() string {
-	return "trace"
+func (t *trace) setupDatadog() error {
+	config := ddtrace.NewConfiguration()
+	config.ServiceName = t.serviceName
+
+	host := strings.Split(t.Endpoint, ":")
+	config.AgentHostname = host[0]
+
+	if len(host) == 2 {
+		config.AgentPort = host[1]
+	}
+
+	tracer, _, err := ddtrace.NewTracer(config)
+	t.tracer = tracer
+	return err
 }
+
+// Name implements the Handler interface.
+func (t *trace) Name() string { return "trace" }
 
 // ServeDNS implements the plugin.Handle interface.
 func (t *trace) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
@@ -75,10 +103,26 @@ func (t *trace) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 			trace = true
 		}
 	}
-	if span := ot.SpanFromContext(ctx); span == nil && trace {
-		span := t.Tracer().StartSpan("servedns")
-		defer span.Finish()
-		ctx = ot.ContextWithSpan(ctx, span)
+	span := ot.SpanFromContext(ctx)
+	if !trace || span != nil {
+		return plugin.NextOrFailure(t.Name(), t.Next, ctx, w, r)
 	}
-	return plugin.NextOrFailure(t.Name(), t.Next, ctx, w, r)
+
+	req := request.Request{W: w, Req: r}
+	span = t.Tracer().StartSpan(spanName(ctx, req))
+	defer span.Finish()
+
+	rw := dnstest.NewRecorder(w)
+	ctx = ot.ContextWithSpan(ctx, span)
+	status, err := plugin.NextOrFailure(t.Name(), t.Next, ctx, rw, r)
+
+	span.SetTag(tagName, req.Name())
+	span.SetTag(tagType, req.Type())
+	span.SetTag(tagRcode, rcode.ToString(rw.Rcode))
+
+	return status, err
+}
+
+func spanName(ctx context.Context, req request.Request) string {
+	return "servedns:" + metrics.WithServer(ctx) + " " + req.Name()
 }

@@ -1,20 +1,21 @@
 package test
 
 import (
-	"io/ioutil"
-	"log"
 	"testing"
 
 	"github.com/coredns/coredns/plugin/test"
 
 	"github.com/miekg/dns"
+
+	// Load all managed plugins in github.com/coredns/coredns
+	_ "github.com/coredns/coredns/core/plugin"
 )
 
 func benchmarkLookupBalanceRewriteCache(b *testing.B) {
 	t := new(testing.T)
 	name, rm, err := test.TempFile(".", exampleOrg)
 	if err != nil {
-		t.Fatalf("failed to create zone: %s", err)
+		t.Fatalf("Failed to create zone: %s", err)
 	}
 	defer rm()
 
@@ -31,7 +32,6 @@ func benchmarkLookupBalanceRewriteCache(b *testing.B) {
 	}
 	defer ex.Stop()
 
-	log.SetOutput(ioutil.Discard)
 	c := new(dns.Client)
 	m := new(dns.Msg)
 	m.SetQuestion("example.org.", dns.TypeA)

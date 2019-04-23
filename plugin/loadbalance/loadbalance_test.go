@@ -1,6 +1,7 @@
 package loadbalance
 
 import (
+	"context"
 	"testing"
 
 	"github.com/coredns/coredns/plugin"
@@ -8,7 +9,6 @@ import (
 	"github.com/coredns/coredns/plugin/test"
 
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 func TestLoadBalance(t *testing.T) {
@@ -120,6 +120,42 @@ func TestLoadBalance(t *testing.T) {
 		}
 		if mx != test.mxExtra {
 			t.Errorf("Test %d: Expected %d MXs in Extra, but got %d", i, test.mxAnswer, mx)
+		}
+	}
+}
+
+func TestLoadBalanceXFR(t *testing.T) {
+	rm := RoundRobin{Next: handler()}
+
+	answer := []dns.RR{
+		test.SOA("skydns.test.	30	IN	SOA	ns.dns.skydns.test. hostmaster.skydns.test. 1542756695 7200 1800 86400 30"),
+		test.MX("mx.region2.skydns.test.			300	IN	MX		1	mx1.region2.skydns.test."),
+		test.A("endpoint.region2.skydns.test.		300	IN	A			10.240.0.1"),
+		test.A("endpoint.region2.skydns.test.		300	IN	A			10.240.0.2"),
+		test.MX("mx.region2.skydns.test.			300	IN	MX		1	mx2.region2.skydns.test."),
+		test.CNAME("cname2.region2.skydns.test.	300	IN	CNAME		cname3.region2.skydns.test."),
+		test.A("endpoint.region2.skydns.test.		300	IN	A			10.240.0.3"),
+		test.MX("mx.region2.skydns.test.			300	IN	MX		1	mx3.region2.skydns.test."),
+		test.SOA("skydns.test.	30	IN	SOA	ns.dns.skydns.test. hostmaster.skydns.test. 1542756695 7200 1800 86400 30"),
+	}
+
+	for _, xfrtype := range []uint16{dns.TypeIXFR, dns.TypeAXFR} {
+		rec := dnstest.NewRecorder(&test.ResponseWriter{})
+		req := new(dns.Msg)
+		req.SetQuestion("skydns.test.", xfrtype)
+		req.Answer = answer
+		_, err := rm.ServeDNS(context.TODO(), rec, req)
+		if err != nil {
+			t.Errorf("Expected no error, but got %s for %s", err, dns.TypeToString[xfrtype])
+			continue
+		}
+
+		if rec.Msg.Answer[0].Header().Rrtype != dns.TypeSOA {
+			t.Errorf("Expected SOA record for first answer for %s", dns.TypeToString[xfrtype])
+		}
+
+		if rec.Msg.Answer[len(rec.Msg.Answer)-1].Header().Rrtype != dns.TypeSOA {
+			t.Errorf("Expected SOA record for last answer for %s", dns.TypeToString[xfrtype])
 		}
 	}
 }

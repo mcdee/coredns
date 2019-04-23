@@ -1,10 +1,14 @@
 # autopath
 
-*autopath* allows for server side search path completion.
+## Name
+
+*autopath* - allows for server-side search path completion.
+
+## Description
 
 If it sees a query that matches the first element of the configured search path, *autopath* will
-follow the chain of search path elements and returns the first reply that is not NXDOMAIN. On any
-failures the original reply is returned. Because *autopath* returns a reply for a name that wasn't
+follow the chain of search path elements and return the first reply that is not NXDOMAIN. On any
+failures, the original reply is returned. Because *autopath* returns a reply for a name that wasn't
 the original question it will add a CNAME that points from the original name (with the search path
 element in it) to the name of this answer.
 
@@ -19,16 +23,15 @@ autopath [ZONE...] RESOLV-CONF
   plugin. For instance `@kubernetes`, will call out to the kubernetes plugin (for each
   query) to retrieve the search list it should use.
 
-Currently the following set of plugin has implemented *autopath*:
-
-* *kubernetes*
-* *erratic*
+If a plugin implements the `AutoPather` interface then it can be used.
 
 ## Metrics
- 
+
 If monitoring is enabled (via the *prometheus* directive) then the following metric is exported:
- 
-* `coredns_autopath_success_count_total{}` - counter of successfully autopath-ed queries.
+
+* `coredns_autopath_success_count_total{server}` - counter of successfully autopath-ed queries.
+
+The `server` label is explained in the *metrics* plugin documentation.
 
 ## Examples
 
@@ -43,4 +46,10 @@ Use `my-resolv.conf` as the file to get the search path from. This file only nee
 autopath @kubernetes
 ~~~
 
-Use the search path dynamically retrieved from the kubernetes plugin.
+Use the search path dynamically retrieved from the *kubernetes* plugin.
+
+## Known Issues
+
+In Kubernetes, *autopath* is not compatible with pods running from Windows nodes.
+
+If the server side search ultimately results in a negative answer (e.g. `NXDOMAIN`), then the client will fruitlessly search all paths manually, thus negating the *autopath* optimization.

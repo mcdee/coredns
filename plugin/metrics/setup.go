@@ -2,11 +2,21 @@ package metrics
 
 import (
 	"net"
+	"runtime"
 
 	"github.com/coredns/coredns/core/dnsserver"
+	"github.com/coredns/coredns/coremain"
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/metrics/vars"
+	clog "github.com/coredns/coredns/plugin/pkg/log"
+	"github.com/coredns/coredns/plugin/pkg/uniq"
 
 	"github.com/mholt/caddy"
+)
+
+var (
+	log      = clog.NewWithPlugin("prometheus")
+	uniqAddr = uniq.New()
 )
 
 func init() {
@@ -14,8 +24,6 @@ func init() {
 		ServerType: "dns",
 		Action:     setup,
 	})
-
-	uniqAddr = addrs{a: make(map[string]int)}
 }
 
 func setup(c *caddy.Controller) error {
@@ -24,37 +32,60 @@ func setup(c *caddy.Controller) error {
 		return plugin.Error("prometheus", err)
 	}
 
+	// register the metrics to its address (ensure only one active metrics per address)
+	obj := uniqAddr.Set(m.Addr, m.OnStartup, m)
+	//propagate the real active Registry to current metrics
+	if om, ok := obj.(*Metrics); ok {
+		m.Reg = om.Reg
+	}
+
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		m.Next = next
 		return m
 	})
 
-	for a, v := range uniqAddr.a {
-		if v == todo {
-			// During restarts we will keep this handler running, BUG.
-			c.OncePerServerBlock(m.OnStartup)
+	c.OncePerServerBlock(func() error {
+		c.OnStartup(func() error {
+			return uniqAddr.ForEach()
+		})
+		return nil
+	})
+
+	c.OnRestart(func() error {
+		vars.PluginEnabled.Reset()
+		return nil
+	})
+
+	c.OnStartup(func() error {
+		conf := dnsserver.GetConfig(c)
+		plugins := conf.Handlers()
+		for _, h := range conf.ListenHosts {
+			addrstr := conf.Transport + "://" + net.JoinHostPort(h, conf.Port)
+			for _, p := range plugins {
+				vars.PluginEnabled.WithLabelValues(addrstr, conf.Zone, p.Name()).Set(1)
+			}
 		}
-		uniqAddr.a[a] = done
-	}
-	c.OnFinalShutdown(m.OnShutdown)
+		return nil
+
+	})
+	c.OnRestart(m.OnRestart)
+	c.OnFinalShutdown(m.OnFinalShutdown)
+
+	// Initialize metrics.
+	buildInfo.WithLabelValues(coremain.CoreVersion, coremain.GitCommit, runtime.Version()).Set(1)
 
 	return nil
 }
 
 func prometheusParse(c *caddy.Controller) (*Metrics, error) {
-	var (
-		met = &Metrics{Addr: addr, zoneMap: make(map[string]bool)}
-		err error
-	)
+	var met = New(defaultAddr)
 
-	defer func() {
-		uniqAddr.SetAddress(met.Addr)
-	}()
-
+	i := 0
 	for c.Next() {
-		if len(met.ZoneNames()) > 0 {
-			return met, c.Err("can only have one metrics module per server")
+		if i > 0 {
+			return nil, plugin.ErrOnce
 		}
+		i++
 
 		for _, z := range c.ServerBlockKeys {
 			met.AddZone(plugin.Host(z).Normalize())
@@ -73,28 +104,8 @@ func prometheusParse(c *caddy.Controller) (*Metrics, error) {
 			return met, c.ArgErr()
 		}
 	}
-	return met, err
+	return met, nil
 }
 
-var uniqAddr addrs
-
-// Keep track on which addrs we listen, so we only start one listener.
-type addrs struct {
-	a map[string]int
-}
-
-func (a *addrs) SetAddress(addr string) {
-	// If already there and set to done, we've already started this listener.
-	if a.a[addr] == done {
-		return
-	}
-	a.a[addr] = todo
-}
-
-// Addr is the address the where the metrics are exported by default.
-const addr = "localhost:9153"
-
-const (
-	todo = 1
-	done = 2
-)
+// defaultAddr is the address the where the metrics are exported by default.
+const defaultAddr = "localhost:9153"

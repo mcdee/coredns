@@ -1,6 +1,8 @@
 package file
 
 import (
+	"context"
+
 	"github.com/coredns/coredns/plugin/file/tree"
 	"github.com/coredns/coredns/request"
 
@@ -25,16 +27,16 @@ const (
 
 // Lookup looks up qname and qtype in the zone. When do is true DNSSEC records are included.
 // Three sets of records are returned, one for the answer, one for authority  and one for the additional section.
-func (z *Zone) Lookup(state request.Request, qname string) ([]dns.RR, []dns.RR, []dns.RR, Result) {
+func (z *Zone) Lookup(ctx context.Context, state request.Request, qname string) ([]dns.RR, []dns.RR, []dns.RR, Result) {
 
 	qtype := state.QType()
 	do := state.Do()
 
-	if !z.NoReload {
+	if 0 < z.ReloadInterval {
 		z.reloadMu.RLock()
 	}
 	defer func() {
-		if !z.NoReload {
+		if 0 < z.ReloadInterval {
 			z.reloadMu.RUnlock()
 		}
 	}()
@@ -106,7 +108,7 @@ func (z *Zone) Lookup(state request.Request, qname string) ([]dns.RR, []dns.RR, 
 			// Only one DNAME is allowed per name. We just pick the first one to synthesize from.
 			dname := dnamerrs[0]
 			if cname := synthesizeCNAME(state.Name(), dname.(*dns.DNAME)); cname != nil {
-				answer, ns, extra, rcode := z.searchCNAME(state, elem, []dns.RR{cname})
+				answer, ns, extra, rcode := z.additionalProcessing(ctx, state, elem, []dns.RR{cname})
 
 				if do {
 					sigs := elem.Types(dns.TypeRRSIG)
@@ -127,12 +129,16 @@ func (z *Zone) Lookup(state request.Request, qname string) ([]dns.RR, []dns.RR, 
 
 		// If we see NS records, it means the name as been delegated, and we should return the delegation.
 		if nsrrs := elem.Types(dns.TypeNS); nsrrs != nil {
-			glue := z.Glue(nsrrs, do)
-			// If qtype == NS, we should returns success to put RRs in answer.
-			if qtype == dns.TypeNS {
-				return nsrrs, nil, glue, Success
+
+			// If the query is specifically for DS and the qname matches the delegated name, we should
+			// return the DS in the answer section and leave the rest empty, i.e. just continue the loop
+			// and continue searching.
+			if qtype == dns.TypeDS && elem.Name() == qname {
+				i++
+				continue
 			}
 
+			glue := z.Glue(nsrrs, do)
 			if do {
 				dss := z.typeFromElem(elem, dns.TypeDS, do)
 				nsrrs = append(nsrrs, dss...)
@@ -153,7 +159,7 @@ func (z *Zone) Lookup(state request.Request, qname string) ([]dns.RR, []dns.RR, 
 	if found && shot {
 
 		if rrs := elem.Types(dns.TypeCNAME); len(rrs) > 0 && qtype != dns.TypeCNAME {
-			return z.searchCNAME(state, elem, rrs)
+			return z.additionalProcessing(ctx, state, elem, rrs)
 		}
 
 		rrs := elem.Types(qtype, qname)
@@ -189,7 +195,7 @@ func (z *Zone) Lookup(state request.Request, qname string) ([]dns.RR, []dns.RR, 
 		auth := z.ns(do)
 
 		if rrs := wildElem.Types(dns.TypeCNAME, qname); len(rrs) > 0 {
-			return z.searchCNAME(state, wildElem, rrs)
+			return z.additionalProcessing(ctx, state, wildElem, rrs)
 		}
 
 		rrs := wildElem.Types(qtype, qname)
@@ -231,7 +237,10 @@ func (z *Zone) Lookup(state request.Request, qname string) ([]dns.RR, []dns.RR, 
 
 	ret := z.soa(do)
 	if do {
-		deny, _ := z.Tree.Prev(qname) // TODO(miek): *found* was not used here.
+		deny, found := z.Tree.Prev(qname)
+		if !found {
+			goto Out
+		}
 		nsec := z.typeFromElem(deny, dns.TypeNSEC, do)
 		ret = append(ret, nsec...)
 
@@ -288,8 +297,8 @@ func (z *Zone) ns(do bool) []dns.RR {
 	return z.Apex.NS
 }
 
-// TODO(miek): should be better named, like aditionalProcessing?
-func (z *Zone) searchCNAME(state request.Request, elem *tree.Elem, rrs []dns.RR) ([]dns.RR, []dns.RR, []dns.RR, Result) {
+// aditionalProcessing adds signatures and tries to resolve CNAMEs that point to external names.
+func (z *Zone) additionalProcessing(ctx context.Context, state request.Request, elem *tree.Elem, rrs []dns.RR) ([]dns.RR, []dns.RR, []dns.RR, Result) {
 
 	qtype := state.QType()
 	do := state.Do()
@@ -305,9 +314,7 @@ func (z *Zone) searchCNAME(state request.Request, elem *tree.Elem, rrs []dns.RR)
 	targetName := rrs[0].(*dns.CNAME).Target
 	elem, _ = z.Tree.Search(targetName)
 	if elem == nil {
-		if !dns.IsSubDomain(z.origin, targetName) {
-			rrs = append(rrs, z.externalLookup(state, targetName, qtype)...)
-		}
+		rrs = append(rrs, z.externalLookup(ctx, state, targetName, qtype)...)
 		return rrs, z.ns(do), nil, Success
 	}
 
@@ -328,11 +335,7 @@ Redo:
 		targetName := cname[0].(*dns.CNAME).Target
 		elem, _ = z.Tree.Search(targetName)
 		if elem == nil {
-			if !dns.IsSubDomain(z.origin, targetName) {
-				if !dns.IsSubDomain(z.origin, targetName) {
-					rrs = append(rrs, z.externalLookup(state, targetName, qtype)...)
-				}
-			}
+			rrs = append(rrs, z.externalLookup(ctx, state, targetName, qtype)...)
 			return rrs, z.ns(do), nil, Success
 		}
 
@@ -370,10 +373,12 @@ func cnameForType(targets []dns.RR, origQtype uint16) []dns.RR {
 	return ret
 }
 
-func (z *Zone) externalLookup(state request.Request, target string, qtype uint16) []dns.RR {
-	m, e := z.Proxy.Lookup(state, target, qtype)
+func (z *Zone) externalLookup(ctx context.Context, state request.Request, target string, qtype uint16) []dns.RR {
+	m, e := z.Upstream.Lookup(ctx, state, target, qtype)
 	if e != nil {
-		// TODO(miek): debugMsg for this as well? Log?
+		return nil
+	}
+	if m == nil {
 		return nil
 	}
 	return m.Answer

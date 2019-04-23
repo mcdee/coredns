@@ -56,12 +56,12 @@ func (z *Zones) Add(zo *file.Zone, name string) {
 	z.Unlock()
 }
 
-// Remove removes the zone named name from z. It also stop the the zone's reload goroutine.
+// Remove removes the zone named name from z. It also stop the zone's reload goroutine.
 func (z *Zones) Remove(name string) {
 	z.Lock()
 
-	if zo, ok := z.Z[name]; ok && !zo.NoReload {
-		zo.ReloadShutdown <- true
+	if zo, ok := z.Z[name]; ok {
+		zo.OnShutdown()
 	}
 
 	delete(z.Z, name)

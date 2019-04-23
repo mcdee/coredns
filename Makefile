@@ -2,51 +2,41 @@
 GITCOMMIT:=$(shell git describe --dirty --always)
 BINARY:=coredns
 SYSTEM:=
-CHECKS:=check godeps
-VERBOSE:=-v
+CHECKS:=check
+BUILDOPTS:=-v
+GOPATH?=$(HOME)/go
+PRESUBMIT:=core coremain plugin test request
+MAKEPWD:=$(dir $(realpath $(firstword $(MAKEFILE_LIST))))
+CGO_ENABLED:=0
 
+.PHONY: all
 all: coredns
 
 .PHONY: coredns
 coredns: $(CHECKS)
-	CGO_ENABLED=0 $(SYSTEM) go build $(VERBOSE) -ldflags="-s -w -X github.com/coredns/coredns/coremain.gitCommit=$(GITCOMMIT)" -o $(BINARY)
+	GO111MODULE=on CGO_ENABLED=$(CGO_ENABLED) $(SYSTEM) go build $(BUILDOPTS) -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(GITCOMMIT)" -o $(BINARY)
 
 .PHONY: check
-check: linter core/zplugin.go core/dnsserver/zdirectives.go godeps
-
-.PHONY: test
-test: check
-	go test -race $(VERBOSE) ./test ./plugin/...
-
-.PHONY: testk8s
-testk8s: check
-	go test -race $(VERBOSE) -tags=k8s -run 'TestKubernetes' ./test ./plugin/kubernetes/...
-
-.PHONY: godeps
-godeps:
-	go get github.com/mholt/caddy
-	go get github.com/miekg/dns
-	go get golang.org/x/net/context
-	go get golang.org/x/text
+check: presubmit core/plugin/zplugin.go core/dnsserver/zdirectives.go
 
 .PHONY: travis
-travis: check
+travis:
 ifeq ($(TEST_TYPE),core)
-	( cd request ; go test -v  -tags 'etcd' -race ./... )
-	( cd core ; go test -v  -tags 'etcd' -race  ./... )
-	( cd coremain go test -v  -tags 'etcd' -race ./... )
+	( cd request ; GO111MODULE=on go test -v -race ./... )
+	( cd core ; GO111MODULE=on go test -v -race  ./... )
+	( cd coremain ; GO111MODULE=on go test -v -race ./... )
 endif
 ifeq ($(TEST_TYPE),integration)
-	( cd test ; go test -v  -tags 'etcd' -race ./... )
+	( cd test ; GO111MODULE=on go test -v -race ./... )
 endif
 ifeq ($(TEST_TYPE),plugin)
-	( cd plugin ; go test -v  -tags 'etcd' -race ./... )
+	( cd plugin ; GO111MODULE=on go test -v -race ./... )
 endif
 ifeq ($(TEST_TYPE),coverage)
 	for d in `go list ./... | grep -v vendor`; do \
 		t=$$(date +%s); \
-		go test -i -tags 'etcd' -coverprofile=cover.out -covermode=atomic $$d || exit 1; \
-		go test -v -tags 'etcd' -coverprofile=cover.out -covermode=atomic $$d || exit 1; \
+		GO111MODULE=on go test -i -coverprofile=cover.out -covermode=atomic $$d || exit 1; \
+		GO111MODULE=on go test -v -coverprofile=cover.out -covermode=atomic $$d || exit 1; \
 		echo "Coverage test $$d took $$(($$(date +%s)-t)) seconds"; \
 		if [ -f cover.out ]; then \
 			cat cover.out >> coverage.txt; \
@@ -55,20 +45,23 @@ ifeq ($(TEST_TYPE),coverage)
 	done
 endif
 
-core/zplugin.go core/dnsserver/zdirectives.go: plugin.cfg
-	go generate coredns.go
+core/plugin/zplugin.go core/dnsserver/zdirectives.go: plugin.cfg
+	GO111MODULE=on go generate coredns.go
 
 .PHONY: gen
 gen:
-	go generate coredns.go
+	GO111MODULE=on go generate coredns.go
 
-.PHONY: linter
-linter:
-	go get -u github.com/alecthomas/gometalinter
-	gometalinter --install golint
-	gometalinter --deadline=1m --disable-all --enable=gofmt --enable=golint --enable=vet --exclude=^vendor/ --exclude=^pb/ ./...
+.PHONY: pb
+pb:
+	$(MAKE) -C pb
+
+# Presubmit runs all scripts in .presubmit; any non 0 exit code will fail the build.
+.PHONY: presubmit
+presubmit:
+	@for pre in $(MAKEPWD)/.presubmit/* ; do "$$pre" $(PRESUBMIT) || exit 1 ; done
 
 .PHONY: clean
 clean:
-	go clean
+	GO111MODULE=on go clean
 	rm -f coredns

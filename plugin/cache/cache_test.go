@@ -1,17 +1,14 @@
 package cache
 
 import (
-	"io/ioutil"
-	"log"
+	"context"
 	"testing"
 	"time"
 
-	"golang.org/x/net/context"
-
 	"github.com/coredns/coredns/plugin"
-	"github.com/coredns/coredns/plugin/pkg/cache"
 	"github.com/coredns/coredns/plugin/pkg/response"
 	"github.com/coredns/coredns/plugin/test"
+	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
 )
@@ -91,6 +88,34 @@ var cacheTestCases = []cacheTestCase{
 		shouldCache: true,
 	},
 	{
+		RecursionAvailable: true, Authoritative: false,
+		Case: test.Case{
+			Rcode: dns.RcodeServerFailure,
+			Qname: "example.org.", Qtype: dns.TypeA,
+			Ns: []dns.RR{},
+		},
+		in: test.Case{
+			Rcode: dns.RcodeServerFailure,
+			Qname: "example.org.", Qtype: dns.TypeA,
+			Ns: []dns.RR{},
+		},
+		shouldCache: true,
+	},
+	{
+		RecursionAvailable: true, Authoritative: false,
+		Case: test.Case{
+			Rcode: dns.RcodeNotImplemented,
+			Qname: "example.org.", Qtype: dns.TypeA,
+			Ns: []dns.RR{},
+		},
+		in: test.Case{
+			Rcode: dns.RcodeNotImplemented,
+			Qname: "example.org.", Qtype: dns.TypeA,
+			Ns: []dns.RR{},
+		},
+		shouldCache: true,
+	},
+	{
 		RecursionAvailable: true, Authoritative: true,
 		Case: test.Case{
 			Qname: "miek.nl.", Qtype: dns.TypeMX,
@@ -149,9 +174,9 @@ func cacheMsg(m *dns.Msg, tc cacheTestCase) *dns.Msg {
 }
 
 func newTestCache(ttl time.Duration) (*Cache, *ResponseWriter) {
-	c := &Cache{Zones: []string{"."}, pcap: defaultCap, ncap: defaultCap, pttl: ttl, nttl: ttl}
-	c.pcache = cache.New(c.pcap)
-	c.ncache = cache.New(c.ncap)
+	c := New()
+	c.pttl = ttl
+	c.nttl = ttl
 
 	crr := &ResponseWriter{ResponseWriter: nil, Cache: c}
 	return c, crr
@@ -163,55 +188,52 @@ func TestCache(t *testing.T) {
 
 	c, crr := newTestCache(maxTTL)
 
-	log.SetOutput(ioutil.Discard)
-
 	for _, tc := range cacheTestCases {
 		m := tc.in.Msg()
 		m = cacheMsg(m, tc)
-		do := tc.in.Do
+
+		state := request.Request{W: nil, Req: m}
 
 		mt, _ := response.Typify(m, utc)
-		k := key(m, mt, do)
+		valid, k := key(state.Name(), m, mt, state.Do())
 
-		crr.set(m, k, mt, c.pttl)
+		if valid {
+			crr.set(m, k, mt, c.pttl)
+		}
 
-		name := plugin.Name(m.Question[0].Name).Normalize()
-		qtype := m.Question[0].Qtype
-
-		i, _ := c.get(time.Now().UTC(), name, qtype, do)
+		i, _ := c.get(time.Now().UTC(), state, "dns://:53")
 		ok := i != nil
 
 		if ok != tc.shouldCache {
-			t.Errorf("cached message that should not have been cached: %s", name)
+			t.Errorf("Cached message that should not have been cached: %s", state.Name())
 			continue
 		}
 
 		if ok {
-			resp := i.toMsg(m)
+			resp := i.toMsg(m, time.Now().UTC())
 
-			if !test.Header(t, tc.Case, resp) {
-				t.Logf("%v\n", resp)
+			if err := test.Header(tc.Case, resp); err != nil {
+				t.Error(err)
 				continue
 			}
 
-			if !test.Section(t, tc.Case, test.Answer, resp.Answer) {
-				t.Logf("%v\n", resp)
+			if err := test.Section(tc.Case, test.Answer, resp.Answer); err != nil {
+				t.Error(err)
 			}
-			if !test.Section(t, tc.Case, test.Ns, resp.Ns) {
-				t.Logf("%v\n", resp)
-
+			if err := test.Section(tc.Case, test.Ns, resp.Ns); err != nil {
+				t.Error(err)
 			}
-			if !test.Section(t, tc.Case, test.Extra, resp.Extra) {
-				t.Logf("%v\n", resp)
+			if err := test.Section(tc.Case, test.Extra, resp.Extra); err != nil {
+				t.Error(err)
 			}
 		}
 	}
 }
 
 func TestCacheZeroTTL(t *testing.T) {
-	c := &Cache{Zones: []string{"."}, pcap: defaultCap, ncap: defaultCap, pttl: maxTTL, nttl: maxTTL}
-	c.pcache = cache.New(c.pcap)
-	c.ncache = cache.New(c.ncap)
+	c := New()
+	c.minpttl = 0
+	c.minnttl = 0
 	c.Next = zeroTTLBackend()
 
 	req := new(dns.Msg)
@@ -228,11 +250,8 @@ func TestCacheZeroTTL(t *testing.T) {
 }
 
 func BenchmarkCacheResponse(b *testing.B) {
-	c := &Cache{Zones: []string{"."}, pcap: defaultCap, ncap: defaultCap, pttl: maxTTL, nttl: maxTTL}
-	c.pcache = cache.New(c.pcap)
-	c.ncache = cache.New(c.ncap)
+	c := New()
 	c.prefetch = 1
-	c.duration = 1 * time.Second
 	c.Next = BackendHandler()
 
 	ctx := context.TODO()
@@ -243,15 +262,14 @@ func BenchmarkCacheResponse(b *testing.B) {
 		reqs[i].SetQuestion(q+".example.org.", dns.TypeA)
 	}
 
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			req := reqs[i]
-			c.ServeDNS(ctx, &test.ResponseWriter{}, req)
-			i++
-			i = i % 5
-		}
-	})
+	b.StartTimer()
+
+	j := 0
+	for i := 0; i < b.N; i++ {
+		req := reqs[j]
+		c.ServeDNS(ctx, &test.ResponseWriter{}, req)
+		j = (j + 1) % 5
+	}
 }
 
 func BackendHandler() plugin.Handler {
@@ -279,4 +297,24 @@ func zeroTTLBackend() plugin.Handler {
 		w.WriteMsg(m)
 		return dns.RcodeSuccess, nil
 	})
+}
+
+func TestComputeTTL(t *testing.T) {
+	tests := []struct {
+		msgTTL      time.Duration
+		minTTL      time.Duration
+		maxTTL      time.Duration
+		expectedTTL time.Duration
+	}{
+		{1800 * time.Second, 300 * time.Second, 3600 * time.Second, 1800 * time.Second},
+		{299 * time.Second, 300 * time.Second, 3600 * time.Second, 300 * time.Second},
+		{299 * time.Second, 0 * time.Second, 3600 * time.Second, 299 * time.Second},
+		{3601 * time.Second, 300 * time.Second, 3600 * time.Second, 3600 * time.Second},
+	}
+	for i, test := range tests {
+		ttl := computeTTL(test.msgTTL, test.minTTL, test.maxTTL)
+		if ttl != test.expectedTTL {
+			t.Errorf("Test %v: Expected ttl %v but found: %v", i, test.expectedTTL, ttl)
+		}
+	}
 }

@@ -7,18 +7,11 @@ import (
 	"github.com/coredns/coredns/plugin/dnstap/msg"
 
 	tap "github.com/dnstap/golang-dnstap"
-	"golang.org/x/net/context"
 )
 
-// Context is a message trap.
-type Context struct {
-	context.Context
-	TrapTapper
-}
-
 // TestingData returns the Data matching coredns/test.ResponseWriter.
-func TestingData() (d *msg.Data) {
-	d = &msg.Data{
+func TestingData() (d *msg.Builder) {
+	d = &msg.Builder{
 		SocketFam:   tap.SocketFamily_INET,
 		SocketProto: tap.SocketProtocol_UDP,
 		Address:     net.ParseIP("10.240.0.1"),
@@ -68,13 +61,12 @@ type TrapTapper struct {
 	Full bool
 }
 
-// TapMessage adds the message to the trap.
-func (t *TrapTapper) TapMessage(m *tap.Message) error {
-	t.Trap = append(t.Trap, m)
-	return nil
+// Pack returns field Full.
+func (t *TrapTapper) Pack() bool {
+	return t.Full
 }
 
-// TapBuilder returns a test msg.Builder.
-func (t *TrapTapper) TapBuilder() msg.Builder {
-	return msg.Builder{Full: t.Full}
+// TapMessage adds the message to the trap.
+func (t *TrapTapper) TapMessage(m *tap.Message) {
+	t.Trap = append(t.Trap, m)
 }

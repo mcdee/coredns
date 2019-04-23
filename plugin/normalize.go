@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coredns/coredns/plugin/pkg/parse"
 	"github.com/miekg/dns"
 )
 
@@ -14,8 +15,8 @@ import (
 // Zones respresents a lists of zone names.
 type Zones []string
 
-// Matches checks is qname is a subdomain of any of the zones in z.  The match
-// will return the most specific zones that matches other. The empty string
+// Matches checks if qname is a subdomain of any of the zones in z.  The match
+// will return the most specific zones that matches. The empty string
 // signals a not found condition.
 func (z Zones) Matches(qname string) string {
 	zone := ""
@@ -61,20 +62,10 @@ type (
 // Normalize will return the host portion of host, stripping
 // of any port or transport. The host will also be fully qualified and lowercased.
 func (h Host) Normalize() string {
-
 	s := string(h)
+	_, s = parse.Transport(s)
 
-	switch {
-	case strings.HasPrefix(s, TransportTLS+"://"):
-		s = s[len(TransportTLS+"://"):]
-	case strings.HasPrefix(s, TransportDNS+"://"):
-		s = s[len(TransportDNS+"://"):]
-	case strings.HasPrefix(s, TransportGRPC+"://"):
-		s = s[len(TransportGRPC+"://"):]
-	}
-
-	// The error can be ignore here, because this function is called after the corefile
-	// has already been vetted.
+	// The error can be ignore here, because this function is called after the corefile has already been vetted.
 	host, _, _, _ := SplitHostPort(s)
 	return Name(host).Normalize()
 }
@@ -115,11 +106,17 @@ func SplitHostPort(s string) (host, port string, ipnet *net.IPNet, err error) {
 	if err == nil {
 		if rev, e := dns.ReverseAddr(ip.String()); e == nil {
 			ones, bits = n.Mask.Size()
+			// get the size, in bits, of each portion of hostname defined in the reverse address. (8 for IPv4, 4 for IPv6)
+			sizeDigit := 8
+			if len(n.IP) == net.IPv6len {
+				sizeDigit = 4
+			}
 			// Get the first lower octet boundary to see what encompassing zone we should be authoritative for.
-			mod := (bits - ones) % 8
+			mod := (bits - ones) % sizeDigit
 			nearest := (bits - ones) + mod
-			offset, end := 0, false
-			for i := 0; i < nearest/8; i++ {
+			offset := 0
+			var end bool
+			for i := 0; i < nearest/sizeDigit; i++ {
 				offset, end = dns.NextLabel(rev, offset)
 				if end {
 					break
@@ -130,10 +127,3 @@ func SplitHostPort(s string) (host, port string, ipnet *net.IPNet, err error) {
 	}
 	return host, port, n, nil
 }
-
-// Duplicated from core/dnsserver/address.go !
-const (
-	TransportDNS  = "dns"
-	TransportTLS  = "tls"
-	TransportGRPC = "grpc"
-)

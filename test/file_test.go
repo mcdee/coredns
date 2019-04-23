@@ -1,12 +1,16 @@
 package test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/coredns/coredns/plugin/test"
+)
 
 func TestTempFile(t *testing.T) {
 	t.Parallel()
-	_, f, e := TempFile(".", "test")
+	_, f, e := test.TempFile(".", "test")
 	if e != nil {
-		t.Fatalf("failed to create temp file: %s", e)
+		t.Fatalf("Failed to create temp file: %s", e)
 	}
 	defer f()
 }

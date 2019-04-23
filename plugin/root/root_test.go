@@ -3,7 +3,6 @@ package root
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +14,6 @@ import (
 )
 
 func TestRoot(t *testing.T) {
-	log.SetOutput(ioutil.Discard)
-
 	// Predefined error substrings
 	parseErrContent := "Error during parsing:"
 	unableToAccessErrContent := "unable to access root path"
@@ -92,7 +89,7 @@ func TestRoot(t *testing.T) {
 	}
 }
 
-// getTempDirPath returnes the path to the system temp directory. If it does not exists - an error is returned.
+// getTempDirPath returns the path to the system temp directory. If it does not exist - an error is returned.
 func getTempDirPath() (string, error) {
 	tempDir := os.TempDir()
 	_, err := os.Stat(tempDir)

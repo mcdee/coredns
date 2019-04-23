@@ -2,26 +2,25 @@
 package log
 
 import (
-	"log"
+	"context"
 	"time"
 
 	"github.com/coredns/coredns/plugin"
-	"github.com/coredns/coredns/plugin/metrics/vars"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
-	"github.com/coredns/coredns/plugin/pkg/rcode"
+	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/plugin/pkg/replacer"
 	"github.com/coredns/coredns/plugin/pkg/response"
 	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 // Logger is a basic request logging plugin.
 type Logger struct {
-	Next      plugin.Handler
-	Rules     []Rule
-	ErrorFunc func(dns.ResponseWriter, *dns.Msg, int) // failover error handler
+	Next  plugin.Handler
+	Rules []Rule
+
+	repl replacer.Replacer
 }
 
 // ServeDNS implements the plugin.Handler interface.
@@ -35,28 +34,15 @@ func (l Logger) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 		rrw := dnstest.NewRecorder(w)
 		rc, err := plugin.NextOrFailure(l.Name(), l.Next, ctx, rrw, r)
 
-		if rc > 0 {
-			// There was an error up the chain, but no response has been written yet.
-			// The error must be handled here so the log entry will record the response size.
-			if l.ErrorFunc != nil {
-				l.ErrorFunc(rrw, r, rc)
-			} else {
-				answer := new(dns.Msg)
-				answer.SetRcode(r, rc)
-				state.SizeAndDo(answer)
-
-				vars.Report(state, vars.Dropped, rcode.ToString(rc), answer.Len(), time.Now())
-
-				w.WriteMsg(answer)
-			}
-			rc = 0
-		}
-
 		tpe, _ := response.Typify(rrw.Msg, time.Now().UTC())
 		class := response.Classify(tpe)
-		if rule.Class == response.All || rule.Class == class {
-			rep := replacer.New(r, rrw, CommonLogEmptyValue)
-			rule.Log.Println(rep.Replace(rule.Format))
+		// If we don't set up a class in config, the default "all" will be added
+		// and we shouldn't have an empty rule.Class.
+		_, ok := rule.Class[response.All]
+		_, ok1 := rule.Class[class]
+		if ok || ok1 {
+			logstr := l.repl.Replace(ctx, state, rrw, rule.Format)
+			clog.Infof(logstr)
 		}
 
 		return rc, err
@@ -71,16 +57,13 @@ func (l Logger) Name() string { return "log" }
 // Rule configures the logging plugin.
 type Rule struct {
 	NameScope string
-	Class     response.Class
+	Class     map[response.Class]struct{}
 	Format    string
-	Log       *log.Logger
 }
 
 const (
 	// CommonLogFormat is the common log format.
-	CommonLogFormat = `{remote} ` + CommonLogEmptyValue + ` [{when}] "{type} {class} {name} {proto} {size} {>do} {>bufsize}" {rcode} {>rflags} {rsize} {duration}`
-	// CommonLogEmptyValue is the common empty log value.
-	CommonLogEmptyValue = "-"
+	CommonLogFormat = `{remote}:{port} ` + replacer.EmptyValue + ` {>id} "{type} {class} {name} {proto} {size} {>do} {>bufsize}" {rcode} {>rflags} {rsize} {duration}`
 	// CombinedLogFormat is the combined log format.
 	CombinedLogFormat = CommonLogFormat + ` "{>opcode}"`
 	// DefaultLogFormat is the default log format.

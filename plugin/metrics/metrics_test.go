@@ -1,23 +1,22 @@
 package metrics
 
 import (
+	"context"
 	"testing"
 
 	"github.com/coredns/coredns/plugin"
-	mtest "github.com/coredns/coredns/plugin/metrics/test"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
 
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 func TestMetrics(t *testing.T) {
-	met := &Metrics{Addr: "localhost:0", zoneMap: make(map[string]bool)}
+	met := New("localhost:0")
 	if err := met.OnStartup(); err != nil {
 		t.Fatalf("Failed to start metrics handler: %s", err)
 	}
-	defer met.OnShutdown()
+	defer met.OnFinalShutdown()
 
 	met.AddZone("example.org.")
 
@@ -71,10 +70,10 @@ func TestMetrics(t *testing.T) {
 			t.Fatalf("Test %d: Expected no error, but got %s", i, err)
 		}
 
-		result := mtest.Scrape(t, "http://"+ListenAddr+"/metrics")
+		result := test.Scrape("http://" + ListenAddr + "/metrics")
 
 		if tc.expectedValue != "" {
-			got, _ := mtest.MetricValue(tc.metric, result)
+			got, _ := test.MetricValue(tc.metric, result)
 			if got != tc.expectedValue {
 				t.Errorf("Test %d: Expected value %s for metrics %s, but got %s", i, tc.expectedValue, tc.metric, got)
 			}

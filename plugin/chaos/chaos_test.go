@@ -1,6 +1,7 @@
 package chaos
 
 import (
+	"context"
 	"testing"
 
 	"github.com/coredns/coredns/plugin"
@@ -8,13 +9,12 @@ import (
 	"github.com/coredns/coredns/plugin/test"
 
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 func TestChaos(t *testing.T) {
 	em := Chaos{
 		Version: version,
-		Authors: map[string]bool{"Miek Gieben": true},
+		Authors: []string{"Miek Gieben"},
 	}
 
 	tests := []struct {

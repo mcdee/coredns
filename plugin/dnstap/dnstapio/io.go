@@ -1,59 +1,81 @@
 package dnstapio
 
 import (
-	"log"
 	"net"
+	"sync/atomic"
 	"time"
+
+	clog "github.com/coredns/coredns/plugin/pkg/log"
 
 	tap "github.com/dnstap/golang-dnstap"
 	fs "github.com/farsightsec/golang-framestream"
-	"github.com/golang/protobuf/proto"
 )
 
+var log = clog.NewWithPlugin("dnstap")
+
 const (
-	tcpTimeout   = 4 * time.Second
-	flushTimeout = 1 * time.Second
-	queueSize    = 1000
+	tcpWriteBufSize = 1024 * 1024
+	tcpTimeout      = 4 * time.Second
+	flushTimeout    = 1 * time.Second
+	queueSize       = 10000
 )
 
 type dnstapIO struct {
-	enc   *fs.Encoder
-	conn  net.Conn
-	queue chan tap.Dnstap
+	endpoint string
+	socket   bool
+	conn     net.Conn
+	enc      *dnstapEncoder
+	queue    chan tap.Dnstap
+	dropped  uint32
+	quit     chan struct{}
 }
 
 // New returns a new and initialized DnstapIO.
-func New() DnstapIO {
-	return &dnstapIO{queue: make(chan tap.Dnstap, queueSize)}
+func New(endpoint string, socket bool) DnstapIO {
+	return &dnstapIO{
+		endpoint: endpoint,
+		socket:   socket,
+		enc: newDnstapEncoder(&fs.EncoderOptions{
+			ContentType:   []byte("protobuf:dnstap.Dnstap"),
+			Bidirectional: true,
+		}),
+		queue: make(chan tap.Dnstap, queueSize),
+		quit:  make(chan struct{}),
+	}
 }
 
 // DnstapIO interface
 type DnstapIO interface {
-	Connect(endpoint string, socket bool) error
+	Connect()
 	Dnstap(payload tap.Dnstap)
 	Close()
 }
 
-// Connect connects to the dnstop endpoint.
-func (dio *dnstapIO) Connect(endpoint string, socket bool) error {
+func (dio *dnstapIO) newConnect() error {
 	var err error
-	if socket {
-		dio.conn, err = net.Dial("unix", endpoint)
+	if dio.socket {
+		if dio.conn, err = net.Dial("unix", dio.endpoint); err != nil {
+			return err
+		}
 	} else {
-		dio.conn, err = net.DialTimeout("tcp", endpoint, tcpTimeout)
+		if dio.conn, err = net.DialTimeout("tcp", dio.endpoint, tcpTimeout); err != nil {
+			return err
+		}
+		if tcpConn, ok := dio.conn.(*net.TCPConn); ok {
+			tcpConn.SetWriteBuffer(tcpWriteBufSize)
+			tcpConn.SetNoDelay(false)
+		}
 	}
-	if err != nil {
-		return err
-	}
-	dio.enc, err = fs.NewEncoder(dio.conn, &fs.EncoderOptions{
-		ContentType:   []byte("protobuf:dnstap.Dnstap"),
-		Bidirectional: true,
-	})
-	if err != nil {
-		return err
+
+	return dio.enc.resetWriter(dio.conn)
+}
+
+// Connect connects to the dnstop endpoint.
+func (dio *dnstapIO) Connect() {
+	if err := dio.newConnect(); err != nil {
+		log.Error("No connection to dnstap endpoint")
 	}
 	go dio.serve()
-	return nil
 }
 
 // Dnstap enqueues the payload for log.
@@ -61,40 +83,63 @@ func (dio *dnstapIO) Dnstap(payload tap.Dnstap) {
 	select {
 	case dio.queue <- payload:
 	default:
-		log.Printf("[ERROR] Dnstap payload dropped")
+		atomic.AddUint32(&dio.dropped, 1)
+	}
+}
+
+func (dio *dnstapIO) closeConnection() {
+	dio.enc.close()
+	if dio.conn != nil {
+		dio.conn.Close()
+		dio.conn = nil
 	}
 }
 
 // Close waits until the I/O routine is finished to return.
 func (dio *dnstapIO) Close() {
-	close(dio.queue)
+	close(dio.quit)
+}
+
+func (dio *dnstapIO) flushBuffer() {
+	if dio.conn == nil {
+		if err := dio.newConnect(); err != nil {
+			return
+		}
+		log.Info("Reconnected to dnstap")
+	}
+
+	if err := dio.enc.flushBuffer(); err != nil {
+		log.Warningf("Connection lost: %s", err)
+		dio.closeConnection()
+		if err := dio.newConnect(); err != nil {
+			log.Errorf("Cannot connect to dnstap: %s", err)
+		} else {
+			log.Info("Reconnected to dnstap")
+		}
+	}
+}
+
+func (dio *dnstapIO) write(payload *tap.Dnstap) {
+	if err := dio.enc.writeMsg(payload); err != nil {
+		atomic.AddUint32(&dio.dropped, 1)
+	}
 }
 
 func (dio *dnstapIO) serve() {
 	timeout := time.After(flushTimeout)
 	for {
 		select {
-		case payload, ok := <-dio.queue:
-			if !ok {
-				dio.enc.Close()
-				dio.conn.Close()
-				return
-			}
-			frame, err := proto.Marshal(&payload)
-			if err != nil {
-				log.Printf("[ERROR] Invalid dnstap payload dropped: %s", err)
-				continue
-			}
-			_, err = dio.enc.Write(frame)
-			if err != nil {
-				log.Printf("[ERROR] Cannot write dnstap payload: %s", err)
-				continue
-			}
+		case <-dio.quit:
+			dio.flushBuffer()
+			dio.closeConnection()
+			return
+		case payload := <-dio.queue:
+			dio.write(&payload)
 		case <-timeout:
-			err := dio.enc.Flush()
-			if err != nil {
-				log.Printf("[ERROR] Cannot flush dnstap payloads: %s", err)
+			if dropped := atomic.SwapUint32(&dio.dropped, 0); dropped > 0 {
+				log.Warningf("Dropped dnstap messages: %d", dropped)
 			}
+			dio.flushBuffer()
 			timeout = time.After(flushTimeout)
 		}
 	}

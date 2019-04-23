@@ -6,11 +6,14 @@ import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/dnstap/dnstapio"
-	"github.com/coredns/coredns/plugin/pkg/dnsutil"
+	clog "github.com/coredns/coredns/plugin/pkg/log"
+	"github.com/coredns/coredns/plugin/pkg/parse"
 
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyfile"
 )
+
+var log = clog.NewWithPlugin("dnstap")
 
 func init() {
 	caddy.RegisterPlugin("dnstap", caddy.Plugin{
@@ -41,7 +44,7 @@ func parseConfig(d *caddyfile.Dispenser) (c config, err error) {
 
 	if strings.HasPrefix(c.target, "tcp://") {
 		// remote IP endpoint
-		servers, err := dnsutil.ParseHostPortOrFile(c.target[6:])
+		servers, err := parse.HostPortOrFile(c.target[6:])
 		if err != nil {
 			return c, d.ArgErr()
 		}
@@ -65,14 +68,11 @@ func setup(c *caddy.Controller) error {
 		return err
 	}
 
-	dio := dnstapio.New()
-	dnstap := Dnstap{IO: dio, Pack: conf.full}
+	dio := dnstapio.New(conf.target, conf.socket)
+	dnstap := Dnstap{IO: dio, JoinRawMessage: conf.full}
 
 	c.OnStartup(func() error {
-		err := dio.Connect(conf.target, conf.socket)
-		if err != nil {
-			return plugin.Error("dnstap", err)
-		}
+		dio.Connect()
 		return nil
 	})
 

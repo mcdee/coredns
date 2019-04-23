@@ -3,9 +3,7 @@ package test
 import (
 	"testing"
 
-	"github.com/coredns/coredns/plugin/proxy"
 	"github.com/coredns/coredns/plugin/test"
-	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
 )
@@ -14,7 +12,7 @@ func TestLookupCache(t *testing.T) {
 	// Start auth. CoreDNS holding the auth zone.
 	name, rm, err := test.TempFile(".", exampleOrg)
 	if err != nil {
-		t.Fatalf("failed to create zone: %s", err)
+		t.Fatalf("Failed to create zone: %s", err)
 	}
 	defer rm()
 
@@ -28,9 +26,9 @@ func TestLookupCache(t *testing.T) {
 	}
 	defer i.Stop()
 
-	// Start caching proxy CoreDNS that we want to test.
+	// Start caching forward CoreDNS that we want to test.
 	corefile = `example.org:0 {
-	proxy . ` + udp + `
+	forward . ` + udp + `
 	cache 10
 }
 `
@@ -40,20 +38,30 @@ func TestLookupCache(t *testing.T) {
 	}
 	defer i.Stop()
 
-	p := proxy.NewLookup([]string{udp})
-	state := request.Request{W: &test.ResponseWriter{}, Req: new(dns.Msg)}
+	t.Run("Long TTL", func(t *testing.T) {
+		testCase(t, "example.org.", udp, 2, 10)
+	})
 
-	resp, err := p.Lookup(state, "example.org.", dns.TypeA)
+	t.Run("Short TTL", func(t *testing.T) {
+		testCase(t, "short.example.org.", udp, 1, 5)
+	})
+
+}
+
+func testCase(t *testing.T, name, addr string, expectAnsLen int, expectTTL uint32) {
+	m := new(dns.Msg)
+	m.SetQuestion(name, dns.TypeA)
+	resp, err := dns.Exchange(m, addr)
 	if err != nil {
 		t.Fatal("Expected to receive reply, but didn't")
 	}
-	// expect answer section with A record in it
-	if len(resp.Answer) == 0 {
-		t.Fatal("Expected to at least one RR in the answer section, got none")
+
+	if len(resp.Answer) != expectAnsLen {
+		t.Fatalf("Expected %v RR in the answer section, got %v.", expectAnsLen, len(resp.Answer))
 	}
 
 	ttl := resp.Answer[0].Header().Ttl
-	if ttl != 10 { // as set in the Corefile
-		t.Errorf("Expected TTL to be %d, got %d", 10, ttl)
+	if ttl != expectTTL {
+		t.Errorf("Expected TTL to be %d, got %d", expectTTL, ttl)
 	}
 }

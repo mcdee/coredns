@@ -3,22 +3,23 @@
 package pprof
 
 import (
-	"log"
 	"net"
 	"net/http"
 	pp "net/http/pprof"
+	"runtime"
 )
 
 type handler struct {
-	addr string
-	ln   net.Listener
-	mux  *http.ServeMux
+	addr     string
+	rateBloc int
+	ln       net.Listener
+	mux      *http.ServeMux
 }
 
 func (h *handler) Startup() error {
 	ln, err := net.Listen("tcp", h.addr)
 	if err != nil {
-		log.Printf("[ERROR] Failed to start pprof handler: %s", err)
+		log.Errorf("Failed to start pprof handler: %s", err)
 		return err
 	}
 
@@ -30,6 +31,8 @@ func (h *handler) Startup() error {
 	h.mux.HandleFunc(path+"/profile", pp.Profile)
 	h.mux.HandleFunc(path+"/symbol", pp.Symbol)
 	h.mux.HandleFunc(path+"/trace", pp.Trace)
+
+	runtime.SetBlockProfileRate(h.rateBloc)
 
 	go func() {
 		http.Serve(h.ln, h.mux)

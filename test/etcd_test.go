@@ -3,30 +3,34 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
-	"io/ioutil"
-	"log"
 	"testing"
 	"time"
 
 	"github.com/coredns/coredns/plugin/etcd"
 	"github.com/coredns/coredns/plugin/etcd/msg"
-	"github.com/coredns/coredns/plugin/proxy"
-	"github.com/coredns/coredns/plugin/test"
-	"github.com/coredns/coredns/request"
 
-	etcdc "github.com/coreos/etcd/client"
+	etcdcv3 "github.com/coreos/etcd/clientv3"
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 func etcdPlugin() *etcd.Etcd {
-	etcdCfg := etcdc.Config{
+	etcdCfg := etcdcv3.Config{
 		Endpoints: []string{"http://localhost:2379"},
 	}
-	cli, _ := etcdc.New(etcdCfg)
-	client := etcdc.NewKeysAPI(cli)
-	return &etcd.Etcd{Client: client, PathPrefix: "/skydns"}
+	cli, _ := etcdcv3.New(etcdCfg)
+	return &etcd.Etcd{Client: cli, PathPrefix: "/skydns"}
+}
+
+func etcdPluginWithCredentials(username, password string) *etcd.Etcd {
+	etcdCfg := etcdcv3.Config{
+		Endpoints: []string{"http://localhost:2379"},
+		Username:  username,
+		Password:  password,
+	}
+	cli, _ := etcdcv3.New(etcdCfg)
+	return &etcd.Etcd{Client: cli, PathPrefix: "/skydns"}
 }
 
 // This test starts two coredns servers (and needs etcd). Configure a stubzones in both (that will loop) and
@@ -41,10 +45,10 @@ func TestEtcdStubAndProxyLookup(t *testing.T) {
         stubzones
         path /skydns
         endpoint http://localhost:2379
-        upstream 8.8.8.8:53 8.8.4.4:53
+        upstream
 	fallthrough
     }
-    proxy . 8.8.8.8:53
+    forward . 8.8.8.8:53
 }`
 
 	ex, udp, _, err := CoreDNSServerAndPorts(corefile)
@@ -54,7 +58,6 @@ func TestEtcdStubAndProxyLookup(t *testing.T) {
 	defer ex.Stop()
 
 	etc := etcdPlugin()
-	log.SetOutput(ioutil.Discard)
 
 	var ctx = context.TODO()
 	for _, serv := range servicesStub { // adds example.{net,org} as stubs
@@ -62,9 +65,9 @@ func TestEtcdStubAndProxyLookup(t *testing.T) {
 		defer delete(ctx, t, etc, serv.Key)
 	}
 
-	p := proxy.NewLookup([]string{udp}) // use udp port from the server
-	state := request.Request{W: &test.ResponseWriter{}, Req: new(dns.Msg)}
-	resp, err := p.Lookup(state, "example.com.", dns.TypeA)
+	m := new(dns.Msg)
+	m.SetQuestion("example.com.", dns.TypeA)
+	resp, err := dns.Exchange(m, udp)
 	if err != nil {
 		t.Fatalf("Expected to receive reply, but didn't: %v", err)
 	}
@@ -94,11 +97,11 @@ func set(ctx context.Context, t *testing.T, e *etcd.Etcd, k string, ttl time.Dur
 		t.Fatal(err)
 	}
 	path, _ := msg.PathWithWildcard(k, e.PathPrefix)
-	e.Client.Set(ctx, path, string(b), &etcdc.SetOptions{TTL: ttl})
+	e.Client.KV.Put(ctx, path, string(b))
 }
 
 // Copied from plugin/etcd/setup_test.go
 func delete(ctx context.Context, t *testing.T, e *etcd.Etcd, k string) {
 	path, _ := msg.PathWithWildcard(k, e.PathPrefix)
-	e.Client.Delete(ctx, path, &etcdc.DeleteOptions{Recursive: false})
+	e.Client.Delete(ctx, path)
 }

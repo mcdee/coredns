@@ -2,12 +2,13 @@
 package plugin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/miekg/dns"
 	ot "github.com/opentracing/opentracing-go"
-	"golang.org/x/net/context"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type (
@@ -67,8 +68,7 @@ func (f HandlerFunc) Name() string { return "handlerfunc" }
 // Error returns err with 'plugin/name: ' prefixed to it.
 func Error(name string, err error) error { return fmt.Errorf("%s/%s: %s", "plugin", name, err) }
 
-// NextOrFailure calls next.ServeDNS when next is not nill, otherwise it will return, a ServerFailure
-// and a nil error.
+// NextOrFailure calls next.ServeDNS when next is not nil, otherwise it will return, a ServerFailure and a nil error.
 func NextOrFailure(name string, next Handler, ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) { // nolint: golint
 	if next != nil {
 		if span := ot.SpanFromContext(ctx); span != nil {
@@ -102,4 +102,7 @@ func ClientWrite(rcode int) bool {
 const Namespace = "coredns"
 
 // TimeBuckets is based on Prometheus client_golang prometheus.DefBuckets
-var TimeBuckets = []float64{0.00025, 0.0005, 0.001, 0.0025, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+var TimeBuckets = prometheus.ExponentialBuckets(0.00025, 2, 16) // from 0.25ms to 8 seconds
+
+// ErrOnce is returned when a plugin doesn't support multiple setups per server.
+var ErrOnce = errors.New("this plugin can only be used once per Server Block")

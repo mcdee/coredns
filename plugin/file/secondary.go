@@ -1,7 +1,6 @@
 package file
 
 import (
-	"log"
 	"math/rand"
 	"time"
 
@@ -16,7 +15,7 @@ func (z *Zone) TransferIn() error {
 	m := new(dns.Msg)
 	m.SetAxfr(z.origin)
 
-	z1 := z.Copy()
+	z1 := z.CopyWithoutApex()
 	var (
 		Err error
 		tr  string
@@ -27,19 +26,19 @@ Transfer:
 		t := new(dns.Transfer)
 		c, err := t.In(m, tr)
 		if err != nil {
-			log.Printf("[ERROR] Failed to setup transfer `%s' with `%q': %v", z.origin, tr, err)
+			log.Errorf("Failed to setup transfer `%s' with `%q': %v", z.origin, tr, err)
 			Err = err
 			continue Transfer
 		}
 		for env := range c {
 			if env.Error != nil {
-				log.Printf("[ERROR] Failed to transfer `%s' from %q: %v", z.origin, tr, env.Error)
+				log.Errorf("Failed to transfer `%s' from %q: %v", z.origin, tr, env.Error)
 				Err = env.Error
 				continue Transfer
 			}
 			for _, rr := range env.RR {
 				if err := z1.Insert(rr); err != nil {
-					log.Printf("[ERROR] Failed to parse transfer `%s' from: %q: %v", z.origin, tr, err)
+					log.Errorf("Failed to parse transfer `%s' from: %q: %v", z.origin, tr, err)
 					Err = err
 					continue Transfer
 				}
@@ -55,7 +54,7 @@ Transfer:
 	z.Tree = z1.Tree
 	z.Apex = z1.Apex
 	*z.Expired = false
-	log.Printf("[INFO] Transferred: %s from %s", z.origin, tr)
+	log.Infof("Transferred: %s from %s", z.origin, tr)
 	return nil
 }
 
@@ -104,7 +103,7 @@ func less(a, b uint32) bool {
 
 // Update updates the secondary zone according to its SOA. It will run for the life time of the server
 // and uses the SOA parameters. Every refresh it will check for a new SOA number. If that fails (for all
-// server) it wil retry every retry interval. If the zone failed to transfer before the expire, the zone
+// server) it will retry every retry interval. If the zone failed to transfer before the expire, the zone
 // will be marked expired.
 func (z *Zone) Update() error {
 	// If we don't have a SOA, we don't have a zone, wait for it to appear.
@@ -117,19 +116,6 @@ Restart:
 	refresh := time.Second * time.Duration(z.Apex.SOA.Refresh)
 	retry := time.Second * time.Duration(z.Apex.SOA.Retry)
 	expire := time.Second * time.Duration(z.Apex.SOA.Expire)
-
-	if refresh < time.Hour {
-		refresh = time.Hour
-	}
-	if retry < time.Hour {
-		retry = time.Hour
-	}
-	if refresh > 24*time.Hour {
-		refresh = 24 * time.Hour
-	}
-	if retry > 12*time.Hour {
-		retry = 12 * time.Hour
-	}
 
 	refreshTicker := time.NewTicker(refresh)
 	retryTicker := time.NewTicker(retry)
@@ -151,38 +137,51 @@ Restart:
 			time.Sleep(jitter(2000)) // 2s randomize
 
 			ok, err := z.shouldTransfer()
-			if err != nil && ok {
+			if err != nil {
+				log.Warningf("Failed retry check %s", err)
+				continue
+			}
+
+			if ok {
 				if err := z.TransferIn(); err != nil {
 					// transfer failed, leave retryActive true
 					break
 				}
-				retryActive = false
-				// transfer OK, possible new SOA, stop timers and redo
-				refreshTicker.Stop()
-				retryTicker.Stop()
-				expireTicker.Stop()
-				goto Restart
 			}
+
+			// no errors, stop timers and restart
+			retryActive = false
+			refreshTicker.Stop()
+			retryTicker.Stop()
+			expireTicker.Stop()
+			goto Restart
 
 		case <-refreshTicker.C:
 
 			time.Sleep(jitter(5000)) // 5s randomize
 
 			ok, err := z.shouldTransfer()
-			retryActive = err != nil
-			if err != nil && ok {
+			if err != nil {
+				log.Warningf("Failed refresh check %s", err)
+				retryActive = true
+				continue
+			}
+
+			if ok {
 				if err := z.TransferIn(); err != nil {
 					// transfer failed
 					retryActive = true
 					break
 				}
-				retryActive = false
-				// transfer OK, possible new SOA, stop timers and redo
-				refreshTicker.Stop()
-				retryTicker.Stop()
-				expireTicker.Stop()
-				goto Restart
 			}
+
+			// no errors, stop timers and restart
+			retryActive = false
+			refreshTicker.Stop()
+			retryTicker.Stop()
+			expireTicker.Stop()
+			goto Restart
+
 		}
 	}
 }

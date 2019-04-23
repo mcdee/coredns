@@ -2,17 +2,17 @@
 package auto
 
 import (
+	"context"
 	"regexp"
 	"time"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/file"
 	"github.com/coredns/coredns/plugin/metrics"
-	"github.com/coredns/coredns/plugin/proxy"
+	"github.com/coredns/coredns/plugin/pkg/upstream"
 	"github.com/coredns/coredns/request"
 
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
 )
 
 type (
@@ -31,22 +31,18 @@ type (
 		re        *regexp.Regexp
 
 		// In the future this should be something like ZoneMeta that contains all this stuff.
-		transferTo []string
-		noReload   bool
-		proxy      proxy.Proxy // Proxy for looking up names during the resolution process
-
-		duration time.Duration
+		transferTo     []string
+		ReloadInterval time.Duration
+		upstream       *upstream.Upstream // Upstream for looking up names during the resolution process.
 	}
 )
 
-// ServeDNS implements the plugin.Handle interface.
+// ServeDNS implements the plugin.Handler interface.
 func (a Auto) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	state := request.Request{W: w, Req: r}
 	qname := state.Name()
 
-	// TODO(miek): match the qname better in the map
-
-	// Precheck with the origins, i.e. are we allowed to looks here.
+	// Precheck with the origins, i.e. are we allowed to look here?
 	zone := plugin.Zones(a.Zones.Origins()).Matches(qname)
 	if zone == "" {
 		return plugin.NextOrFailure(a.Name(), a.Next, ctx, w, r)
@@ -68,11 +64,11 @@ func (a Auto) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (i
 		return xfr.ServeDNS(ctx, w, r)
 	}
 
-	answer, ns, extra, result := z.Lookup(state, qname)
+	answer, ns, extra, result := z.Lookup(ctx, state, qname)
 
 	m := new(dns.Msg)
 	m.SetReply(r)
-	m.Authoritative, m.RecursionAvailable, m.Compress = true, true, true
+	m.Authoritative = true
 	m.Answer, m.Ns, m.Extra = answer, ns, extra
 
 	switch result {
@@ -86,8 +82,6 @@ func (a Auto) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (i
 		return dns.RcodeServerFailure, nil
 	}
 
-	state.SizeAndDo(m)
-	m, _ = state.Scrub(m)
 	w.WriteMsg(m)
 	return dns.RcodeSuccess, nil
 }

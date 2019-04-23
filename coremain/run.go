@@ -12,17 +12,37 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mholt/caddy"
-
 	"github.com/coredns/coredns/core/dnsserver"
+	clog "github.com/coredns/coredns/plugin/pkg/log"
 
-	// Plug in CoreDNS
-	_ "github.com/coredns/coredns/core"
+	"github.com/mholt/caddy"
 )
 
 func init() {
+	caddy.DefaultConfigFile = "Corefile"
+	caddy.Quiet = true // don't show init stuff from caddy
+	setVersion()
+
+	flag.StringVar(&conf, "conf", "", "Corefile to load (default \""+caddy.DefaultConfigFile+"\")")
+	flag.StringVar(&cpu, "cpu", "100%", "CPU cap")
+	flag.BoolVar(&plugins, "plugins", false, "List installed plugins")
+	flag.StringVar(&caddy.PidFile, "pidfile", "", "Path to write pid file")
+	flag.BoolVar(&version, "version", false, "Show version")
+	flag.BoolVar(&dnsserver.Quiet, "quiet", false, "Quiet mode (no initialization output)")
+
+	caddy.RegisterCaddyfileLoader("flag", caddy.LoaderFunc(confLoader))
+	caddy.SetDefaultCaddyfileLoader("default", caddy.LoaderFunc(defaultLoader))
+
+	caddy.AppName = coreName
+	caddy.AppVersion = CoreVersion
+}
+
+// Run is CoreDNS's main() function.
+func Run() {
+	caddy.TrapSignals()
+
 	// Reset flag.CommandLine to get rid of unwanted flags for instance from glog (used in kubernetes).
-	// And readd the once we want to keep.
+	// And read the ones we want to keep.
 	flag.VisitAll(func(f *flag.Flag) {
 		if _, ok := flagsBlacklist[f.Name]; ok {
 			return
@@ -35,40 +55,14 @@ func init() {
 		flag.Var(f.Value, f.Name, f.Usage)
 	}
 
-	caddy.TrapSignals()
-	caddy.DefaultConfigFile = "Corefile"
-	caddy.Quiet = true // don't show init stuff from caddy
-	setVersion()
-
-	flag.StringVar(&conf, "conf", "", "Corefile to load (default \""+caddy.DefaultConfigFile+"\")")
-	flag.StringVar(&cpu, "cpu", "100%", "CPU cap")
-	flag.BoolVar(&plugins, "plugins", false, "List installed plugins")
-	flag.StringVar(&caddy.PidFile, "pidfile", "", "Path to write pid file")
-	flag.BoolVar(&version, "version", false, "Show version")
-	flag.BoolVar(&dnsserver.Quiet, "quiet", false, "Quiet mode (no initialization output)")
-	flag.BoolVar(&logfile, "log", false, "Log to standard output")
-
-	caddy.RegisterCaddyfileLoader("flag", caddy.LoaderFunc(confLoader))
-	caddy.SetDefaultCaddyfileLoader("default", caddy.LoaderFunc(defaultLoader))
-
-	caddy.AppName = coreName
-	caddy.AppVersion = coreVersion
-}
-
-// Run is CoreDNS's main() function.
-func Run() {
-
 	flag.Parse()
 
 	if len(flag.Args()) > 0 {
 		mustLogFatal(fmt.Errorf("extra command line arguments: %s", flag.Args()))
 	}
 
-	// Set up process log before anything bad happens
-	if logfile {
-		log.SetOutput(os.Stdout)
-	}
-	log.SetFlags(log.LstdFlags)
+	log.SetOutput(os.Stdout)
+	log.SetFlags(0) // Set to 0 because we're doing our own time, with timezone
 
 	if version {
 		showVersion()
@@ -157,8 +151,8 @@ func defaultLoader(serverType string) (caddy.Input, error) {
 
 // logVersion logs the version that is starting.
 func logVersion() {
-	log.Print("[INFO] " + versionString())
-	log.Print("[INFO] " + releaseString())
+	clog.Info(versionString())
+	clog.Info(releaseString())
 }
 
 // showVersion prints the version that is starting.
@@ -180,7 +174,7 @@ func versionString() string {
 // e.g.,
 // linux/amd64, go1.8.3, a6d2d7b5
 func releaseString() string {
-	return fmt.Sprintf("%s/%s, %s, %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version(), gitCommit)
+	return fmt.Sprintf("%s/%s, %s, %s\n", runtime.GOOS, runtime.GOARCH, runtime.Version(), GitCommit)
 }
 
 // setVersion figures out the version information
@@ -193,7 +187,7 @@ func setVersion() {
 	if gitNearestTag != "" || gitTag != "" {
 		if devBuild && gitNearestTag != "" {
 			appVersion = fmt.Sprintf("%s (+%s %s)",
-				strings.TrimPrefix(gitNearestTag, "v"), gitCommit, buildDate)
+				strings.TrimPrefix(gitNearestTag, "v"), GitCommit, buildDate)
 		} else if gitTag != "" {
 			appVersion = strings.TrimPrefix(gitTag, "v")
 		}
@@ -252,20 +246,22 @@ var (
 	buildDate        string // date -u
 	gitTag           string // git describe --exact-match HEAD 2> /dev/null
 	gitNearestTag    string // git describe --abbrev=0 --tags HEAD
-	gitCommit        string // git rev-parse HEAD
 	gitShortStat     string // git diff-index --shortstat
 	gitFilesModified string // git diff-index --name-only HEAD
+
+	// Gitcommit contains the commit where we built CoreDNS from.
+	GitCommit string
 )
 
 // flagsBlacklist removes flags with these names from our flagset.
-var flagsBlacklist = map[string]bool{
-	"logtostderr":      true,
-	"alsologtostderr":  true,
-	"v":                true,
-	"stderrthreshold":  true,
-	"vmodule":          true,
-	"log_backtrace_at": true,
-	"log_dir":          true,
+var flagsBlacklist = map[string]struct{}{
+	"logtostderr":      {},
+	"alsologtostderr":  {},
+	"v":                {},
+	"stderrthreshold":  {},
+	"vmodule":          {},
+	"log_backtrace_at": {},
+	"log_dir":          {},
 }
 
 var flagsToKeep []*flag.Flag
