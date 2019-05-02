@@ -34,7 +34,7 @@ func setupENS(c *caddy.Controller) error {
 	}
 
 	// Obtain the registry contract
-	registryContract, err := RegistryContract(client)
+	registry, err := ens.NewRegistry(client)
 	if err != nil {
 		return plugin.Error("ens", err)
 	}
@@ -42,7 +42,7 @@ func setupENS(c *caddy.Controller) error {
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		return ENS{Next: next,
 			Client:   client,
-			Registry: registryContract}
+			Registry: registry}
 	})
 
 	return nil

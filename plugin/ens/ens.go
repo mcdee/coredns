@@ -6,9 +6,9 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/ens/dnsresolvercontract"
-	"github.com/coredns/coredns/plugin/ens/registrycontract"
 	"github.com/coredns/coredns/request"
 	"github.com/ethereum/go-ethereum/ethclient"
+	ens "github.com/wealdtech/go-ens/v2"
 
 	"github.com/miekg/dns"
 	"golang.org/x/net/context"
@@ -18,7 +18,7 @@ import (
 type ENS struct {
 	Next     plugin.Handler
 	Client   *ethclient.Client
-	Registry *registrycontract.RegistryContract
+	Registry *ens.Registry
 }
 
 // IsAuthoritative checks if the ENS plugin is authoritative for a given domain
@@ -31,20 +31,12 @@ func (e ENS) IsAuthoritative(domain string) bool {
 // HasRecords checks if there are any records for a specific domain and name.
 // This is used for wildcard eligibility
 func (e ENS) HasRecords(domain string, name string) (bool, error) {
-	domainHash := NameHash(domain)
-	nameHash := DNSWireFormatDomainHash(name)
-
-	resolverAddress, err := e.Registry.Resolver(nil, domainHash)
+	resolver, err := ens.NewDNSResolver(e.Client, domain)
 	if err != nil {
 		return false, err
 	}
 
-	resolverContract, err := dnsresolvercontract.NewDNSResolverContract(resolverAddress, e.Client)
-	if err != nil {
-		return false, err
-	}
-
-	return resolverContract.HasDNSRecords(nil, domainHash, nameHash)
+	return resolver.HasDNSRecords(nil, domainHash, DNSWireFormatDomainHash(name))
 }
 
 // Query queries a given domain/name/resource combination
